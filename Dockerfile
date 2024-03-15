@@ -16,4 +16,6 @@ RUN apt-get update && apt install -y --no-install-recommends \
 
 COPY start.sh /
 
+RUN chmod +x start.sh && mkdir /s3
+
 ENTRYPOINT ["/start.sh"]
