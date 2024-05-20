@@ -2,6 +2,7 @@
 name = "rgb-lightning-node"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.75.0"
 
 [[bin]]
 name = "rgb-lightning-node"
@@ -11,6 +12,7 @@ anyhow = "1.0.72"
 axum = "0.6.19"
 axum-extra = "0.7.5"
 # axum-macros = "0.3.8"  # uncomment to use debug_handler
+baid58 = "0.4.4"
 base64 = "0.13.0"
 bdk = { version = "0.28", features = ["electrum", "keys-bip39"] }
 bech32 = "0.8"
@@ -61,7 +63,8 @@ rgb_core = { package = "rgb-core", version = "=0.10.8" }
 strict_encoding = "=2.6.1"
 strict_types = "=1.6.3"
 
-amplify_num = "=0.5.1"
+amplify_num = "=0.5.1" # temporary dependency pin
+aluvm = "=0.10.6" # temporary dependency pin
 
 [dev-dependencies]
 dircmp = "0.2.0"
