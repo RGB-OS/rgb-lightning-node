@@ -1,4 +1,4 @@
-use crate::routes::AssetIface;
+use crate::routes::{AssetIface, BitcoinNetwork};
 
 use super::*;
 
@@ -14,13 +14,17 @@ async fn send_receive() {
 
     let test_dir_node1 = format!("{TEST_DIR_BASE}node1");
     let test_dir_node2 = format!("{TEST_DIR_BASE}node2");
-    let (node1_addr, _) = start_node(test_dir_node1, NODE1_PEER_PORT, false).await;
-    let (node2_addr, _) = start_node(test_dir_node2, NODE2_PEER_PORT, false).await;
+    let (node1_addr, _) = start_node(&test_dir_node1, NODE1_PEER_PORT, false).await;
+    let (node2_addr, _) = start_node(&test_dir_node2, NODE2_PEER_PORT, false).await;
+
+    let net_info = network_info(node1_addr).await;
+    assert_eq!(net_info.network, BitcoinNetwork::Regtest);
+    let height_1 = net_info.height;
 
     fund_and_create_utxos(node1_addr).await;
     fund_and_create_utxos(node2_addr).await;
 
-    let asset_id = issue_asset(node1_addr).await;
+    let asset_id = issue_asset_nia(node1_addr).await.asset_id;
 
     let recipient_id = rgb_invoice(node2_addr, None).await.recipient_id;
     send_asset(node1_addr, &asset_id, 400, recipient_id).await;
@@ -50,7 +54,7 @@ async fn send_receive() {
     assert!(matches!(decoded.asset_iface, Some(AssetIface::RGB20)));
     assert_eq!(decoded.asset_id, Some(asset_id.clone()));
     assert_eq!(decoded.amount, None);
-    assert!(decoded.network.is_none());
+    assert!(matches!(decoded.network, BitcoinNetwork::Regtest));
     assert!(decoded.expiration_timestamp.is_some());
     assert_eq!(decoded.transport_endpoints, vec![PROXY_ENDPOINT_REGTEST]);
 
@@ -62,4 +66,12 @@ async fn send_receive() {
     refresh_transfers(node1_addr).await;
     assert_eq!(asset_balance_spendable(node1_addr, &asset_id).await, 700);
     assert_eq!(asset_balance_spendable(node2_addr, &asset_id).await, 300);
+
+    // send some BTC
+    let addr = address(node2_addr).await;
+    send_btc(node1_addr, 1000, &addr).await;
+
+    // check network info reports the increased height
+    let net_info = network_info(node1_addr).await;
+    assert_eq!(net_info.height, height_1 + 7); // 4x from funding (2 each) + 3x from transfers)
 }

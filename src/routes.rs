@@ -33,12 +33,19 @@ use lightning::{
 use lightning_invoice::payment::pay_invoice;
 use lightning_invoice::{utils::create_invoice_from_channelmanager, Currency};
 use lightning_invoice::{Bolt11Invoice, PaymentSecret};
-use rgb_lib::wallet::{Invoice as RgbLibInvoice, Recipient, RecipientData};
-use rgb_lib::{generate_keys, BitcoinNetwork as RgbLibNetwork, Error as RgbLibError};
-use rgbstd::contract::{ContractId, SecretSeal};
-use rgbwallet::RgbTransport;
+use rgb_lib::{
+    generate_keys,
+    wallet::{
+        AssetCFA as RgbLibAssetCFA, AssetIface as RgbLibAssetIface, AssetNIA as RgbLibAssetNIA,
+        AssetUDA as RgbLibAssetUDA, Balance as RgbLibBalance, Invoice as RgbLibInvoice,
+        Media as RgbLibMedia, Recipient, RecipientInfo, TokenLight as RgbLibTokenLight,
+    },
+    AssetSchema as RgbLibAssetSchema, BitcoinNetwork as RgbLibNetwork, ContractId,
+    Error as RgbLibError, RgbTransport,
+};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
@@ -85,16 +92,6 @@ pub(crate) struct AddressResponse {
 }
 
 #[derive(Deserialize, Serialize)]
-pub(crate) struct Asset {
-    pub(crate) asset_id: String,
-    pub(crate) ticker: String,
-    pub(crate) name: String,
-    pub(crate) precision: u8,
-    pub(crate) issued_supply: u64,
-    pub(crate) timestamp: i64,
-}
-
-#[derive(Deserialize, Serialize)]
 pub(crate) struct AssetBalanceRequest {
     pub(crate) asset_id: String,
 }
@@ -108,11 +105,135 @@ pub(crate) struct AssetBalanceResponse {
     pub(crate) offchain_inbound: u64,
 }
 
+#[derive(Deserialize, Serialize)]
+pub(crate) struct AssetCFA {
+    pub(crate) asset_id: String,
+    pub(crate) asset_iface: AssetIface,
+    pub(crate) name: String,
+    pub(crate) details: Option<String>,
+    pub(crate) precision: u8,
+    pub(crate) issued_supply: u64,
+    pub(crate) timestamp: i64,
+    pub(crate) added_at: i64,
+    pub(crate) balance: BtcBalance,
+    pub(crate) media: Option<Media>,
+}
+
+impl From<RgbLibAssetCFA> for AssetCFA {
+    fn from(value: RgbLibAssetCFA) -> Self {
+        Self {
+            asset_id: value.asset_id,
+            asset_iface: value.asset_iface.into(),
+            name: value.name,
+            details: value.details,
+            precision: value.precision,
+            issued_supply: value.issued_supply,
+            timestamp: value.timestamp,
+            added_at: value.added_at,
+            balance: value.balance.into(),
+            media: value.media.map(|m| m.into()),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) enum AssetIface {
     RGB20,
     RGB21,
     RGB25,
+}
+
+impl From<RgbLibAssetIface> for AssetIface {
+    fn from(value: RgbLibAssetIface) -> Self {
+        match value {
+            RgbLibAssetIface::RGB20 => Self::RGB20,
+            RgbLibAssetIface::RGB21 => Self::RGB21,
+            RgbLibAssetIface::RGB25 => Self::RGB25,
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct AssetNIA {
+    pub(crate) asset_id: String,
+    pub(crate) asset_iface: AssetIface,
+    pub(crate) ticker: String,
+    pub(crate) name: String,
+    pub(crate) details: Option<String>,
+    pub(crate) precision: u8,
+    pub(crate) issued_supply: u64,
+    pub(crate) timestamp: i64,
+    pub(crate) added_at: i64,
+    pub(crate) balance: BtcBalance,
+    pub(crate) media: Option<Media>,
+}
+
+impl From<RgbLibAssetNIA> for AssetNIA {
+    fn from(value: RgbLibAssetNIA) -> Self {
+        Self {
+            asset_id: value.asset_id,
+            asset_iface: value.asset_iface.into(),
+            ticker: value.ticker,
+            name: value.name,
+            details: value.details,
+            precision: value.precision,
+            issued_supply: value.issued_supply,
+            timestamp: value.timestamp,
+            added_at: value.added_at,
+            balance: value.balance.into(),
+            media: value.media.map(|m| m.into()),
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) enum AssetSchema {
+    Nia,
+    Uda,
+    Cfa,
+}
+
+impl From<AssetSchema> for RgbLibAssetSchema {
+    fn from(value: AssetSchema) -> Self {
+        match value {
+            AssetSchema::Nia => Self::Nia,
+            AssetSchema::Uda => Self::Uda,
+            AssetSchema::Cfa => Self::Cfa,
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct AssetUDA {
+    pub(crate) asset_id: String,
+    pub(crate) asset_iface: AssetIface,
+    pub(crate) ticker: String,
+    pub(crate) name: String,
+    pub(crate) details: Option<String>,
+    pub(crate) precision: u8,
+    pub(crate) issued_supply: u64,
+    pub(crate) timestamp: i64,
+    pub(crate) added_at: i64,
+    pub(crate) balance: BtcBalance,
+    pub(crate) token: Option<TokenLight>,
+}
+
+impl From<RgbLibAssetUDA> for AssetUDA {
+    fn from(value: RgbLibAssetUDA) -> Self {
+        Self {
+            asset_id: value.asset_id,
+            asset_iface: value.asset_iface.into(),
+            ticker: value.ticker,
+            name: value.name,
+            details: value.details,
+            precision: value.precision,
+            issued_supply: value.issued_supply,
+            timestamp: value.timestamp,
+            added_at: value.added_at,
+            balance: value.balance.into(),
+            token: value.token.map(|t| t.into()),
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -121,7 +242,7 @@ pub(crate) struct BackupRequest {
     pub(crate) password: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) enum BitcoinNetwork {
     Mainnet,
     Testnet,
@@ -130,23 +251,23 @@ pub(crate) enum BitcoinNetwork {
 }
 
 impl From<Network> for BitcoinNetwork {
-    fn from(x: Network) -> BitcoinNetwork {
+    fn from(x: Network) -> Self {
         match x {
-            Network::Bitcoin => BitcoinNetwork::Mainnet,
-            Network::Testnet => BitcoinNetwork::Testnet,
-            Network::Regtest => BitcoinNetwork::Regtest,
-            Network::Signet => BitcoinNetwork::Signet,
+            Network::Bitcoin => Self::Mainnet,
+            Network::Testnet => Self::Testnet,
+            Network::Regtest => Self::Regtest,
+            Network::Signet => Self::Signet,
         }
     }
 }
 
 impl From<RgbLibNetwork> for BitcoinNetwork {
-    fn from(x: RgbLibNetwork) -> BitcoinNetwork {
+    fn from(x: RgbLibNetwork) -> Self {
         match x {
-            RgbLibNetwork::Mainnet => BitcoinNetwork::Mainnet,
-            RgbLibNetwork::Testnet => BitcoinNetwork::Testnet,
-            RgbLibNetwork::Regtest => BitcoinNetwork::Regtest,
-            RgbLibNetwork::Signet => BitcoinNetwork::Signet,
+            RgbLibNetwork::Mainnet => Self::Mainnet,
+            RgbLibNetwork::Testnet => Self::Testnet,
+            RgbLibNetwork::Regtest => Self::Regtest,
+            RgbLibNetwork::Signet => Self::Signet,
         }
     }
 }
@@ -162,6 +283,16 @@ pub(crate) struct BtcBalance {
     pub(crate) settled: u64,
     pub(crate) future: u64,
     pub(crate) spendable: u64,
+}
+
+impl From<RgbLibBalance> for BtcBalance {
+    fn from(value: RgbLibBalance) -> Self {
+        Self {
+            settled: value.settled,
+            future: value.future,
+            spendable: value.spendable,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -242,7 +373,7 @@ pub(crate) struct DecodeRGBInvoiceResponse {
     pub(crate) asset_iface: Option<AssetIface>,
     pub(crate) asset_id: Option<String>,
     pub(crate) amount: Option<u64>,
-    pub(crate) network: Option<BitcoinNetwork>,
+    pub(crate) network: BitcoinNetwork,
     pub(crate) expiration_timestamp: Option<i64>,
     pub(crate) transport_endpoints: Vec<String>,
 }
@@ -297,7 +428,21 @@ pub(crate) struct InvoiceStatusResponse {
 }
 
 #[derive(Deserialize, Serialize)]
-pub(crate) struct IssueAssetRequest {
+pub(crate) struct IssueAssetCFARequest {
+    pub(crate) amounts: Vec<u64>,
+    pub(crate) name: String,
+    pub(crate) details: Option<String>,
+    pub(crate) precision: u8,
+    pub(crate) file_path: Option<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct IssueAssetCFAResponse {
+    pub(crate) asset: AssetCFA,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct IssueAssetNIARequest {
     pub(crate) amounts: Vec<u64>,
     pub(crate) ticker: String,
     pub(crate) name: String,
@@ -305,8 +450,23 @@ pub(crate) struct IssueAssetRequest {
 }
 
 #[derive(Deserialize, Serialize)]
-pub(crate) struct IssueAssetResponse {
-    pub(crate) asset_id: String,
+pub(crate) struct IssueAssetNIAResponse {
+    pub(crate) asset: AssetNIA,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct IssueAssetUDARequest {
+    pub(crate) ticker: String,
+    pub(crate) name: String,
+    pub(crate) details: Option<String>,
+    pub(crate) precision: u8,
+    pub(crate) media_file_path: Option<String>,
+    pub(crate) attachments_file_paths: Vec<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct IssueAssetUDAResponse {
+    pub(crate) asset: AssetUDA,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -325,8 +485,15 @@ pub(crate) struct KeysendResponse {
 }
 
 #[derive(Deserialize, Serialize)]
+pub(crate) struct ListAssetsRequest {
+    pub(crate) filter_asset_schemas: Vec<AssetSchema>,
+}
+
+#[derive(Deserialize, Serialize)]
 pub(crate) struct ListAssetsResponse {
-    pub(crate) assets: Vec<Asset>,
+    pub(crate) nia: Option<Vec<AssetNIA>>,
+    pub(crate) uda: Option<Vec<AssetUDA>>,
+    pub(crate) cfa: Option<Vec<AssetCFA>>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -390,6 +557,10 @@ pub(crate) struct MakerExecuteRequest {
     pub(crate) taker_pubkey: String,
 }
 
+// "from" and "to" are seen from the taker's perspective, so:
+// - "from" is what the taker will send and the maker will receive
+// - "to" is what the taker will receive and the maker will send
+// qty_from and qty_to are in msat when the asset is BTC
 #[derive(Deserialize, Serialize)]
 pub(crate) struct MakerInitRequest {
     pub(crate) qty_from: u64,
@@ -404,6 +575,21 @@ pub(crate) struct MakerInitResponse {
     pub(crate) payment_hash: String,
     pub(crate) payment_secret: String,
     pub(crate) swapstring: String,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct Media {
+    pub(crate) file_path: String,
+    pub(crate) mime: String,
+}
+
+impl From<RgbLibMedia> for Media {
+    fn from(value: RgbLibMedia) -> Self {
+        Self {
+            file_path: value.file_path,
+            mime: value.mime,
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -484,7 +670,7 @@ pub(crate) struct RgbInvoiceResponse {
 pub(crate) struct SendAssetRequest {
     pub(crate) asset_id: String,
     pub(crate) amount: u64,
-    pub(crate) blinded_utxo: String,
+    pub(crate) recipient_id: String,
     pub(crate) donation: bool,
     pub(crate) min_confirmations: u8,
     pub(crate) transport_endpoints: Vec<String>,
@@ -568,6 +754,37 @@ pub(crate) struct TakerRequest {
     pub(crate) swapstring: String,
 }
 
+#[derive(Deserialize, Serialize)]
+pub(crate) struct TokenLight {
+    pub(crate) index: u32,
+    pub(crate) ticker: Option<String>,
+    pub(crate) name: Option<String>,
+    pub(crate) details: Option<String>,
+    pub(crate) embedded_media: bool,
+    pub(crate) media: Option<Media>,
+    pub(crate) attachments: HashMap<u8, Media>,
+    pub(crate) reserves: bool,
+}
+
+impl From<RgbLibTokenLight> for TokenLight {
+    fn from(value: RgbLibTokenLight) -> Self {
+        Self {
+            index: value.index,
+            ticker: value.ticker,
+            name: value.name,
+            details: value.details,
+            embedded_media: value.embedded_media,
+            media: value.media.map(|m| m.into()),
+            attachments: value
+                .attachments
+                .into_iter()
+                .map(|(k, v)| (k, v.into()))
+                .collect(),
+            reserves: value.reserves,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct Transaction {
     pub(crate) transaction_type: TransactionType,
@@ -578,7 +795,7 @@ pub(crate) struct Transaction {
     pub(crate) confirmation_time: Option<BlockTime>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) enum TransactionType {
     RgbSend,
     Drain,
@@ -602,7 +819,7 @@ pub(crate) struct Transfer {
     pub(crate) transport_endpoints: Vec<TransferTransportEndpoint>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) enum TransferKind {
     Issuance,
     ReceiveBlind,
@@ -610,7 +827,7 @@ pub(crate) enum TransferKind {
     Send,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) enum TransferStatus {
     WaitingCounterparty,
     WaitingConfirmations,
@@ -714,17 +931,21 @@ impl From<RgbLibError> for APIError {
             RgbLibError::InsufficientSpendableAssets { .. } => APIError::InsufficientAssets,
             RgbLibError::InsufficientTotalAssets { .. } => APIError::InsufficientAssets,
             RgbLibError::InvalidAssetID { asset_id } => APIError::InvalidAssetID(asset_id),
-            RgbLibError::InvalidBlindedUTXO { details } => APIError::InvalidBlindedUTXO(details),
             RgbLibError::InvalidFeeRate { details } => APIError::InvalidFeeRate(details),
             RgbLibError::InvalidName { details } => APIError::InvalidName(details),
             RgbLibError::InvalidPrecision { details } => APIError::InvalidPrecision(details),
+            RgbLibError::InvalidRecipientID => APIError::InvalidRecipientID,
+            RgbLibError::InvalidRecipientNetwork => APIError::InvalidRecipientNetwork,
             RgbLibError::InvalidTicker { details } => APIError::InvalidTicker(details),
             RgbLibError::InvalidTransportEndpoints { details } => {
                 APIError::InvalidTransportEndpoints(details)
             }
             RgbLibError::RecipientIDAlreadyUsed => APIError::RecipientIDAlreadyUsed,
             RgbLibError::OutputBelowDustLimit => APIError::OutputBelowDustLimit,
-            _ => APIError::Unexpected,
+            _ => {
+                tracing::debug!("Unexpected rgb-lib error: {error:?}");
+                APIError::Unexpected
+            }
         }
     }
 }
@@ -750,12 +971,14 @@ pub(crate) async fn asset_balance(
 
     let balance = unlocked_state.rgb_get_asset_balance(contract_id)?;
 
-    let ldk_data_dir_path = PathBuf::from(state.static_state.ldk_data_dir.clone());
     let mut offchain_outbound = 0;
     let mut offchain_inbound = 0;
     for chan_info in unlocked_state.channel_manager.list_channels() {
-        let info_file_path =
-            get_rgb_channel_info_path(&chan_info.channel_id.to_hex(), &ldk_data_dir_path, false);
+        let info_file_path = get_rgb_channel_info_path(
+            &chan_info.channel_id.to_hex(),
+            &state.static_state.ldk_data_dir,
+            false,
+        );
         if !info_file_path.exists() {
             continue;
         }
@@ -786,8 +1009,8 @@ pub(crate) async fn backup(
             check_password_validity(&payload.password, &state.static_state.storage_dir_path)?;
 
         do_backup(
-            PathBuf::from(&state.static_state.storage_dir_path),
-            &payload.backup_path,
+            &state.static_state.storage_dir_path,
+            Path::new(&payload.backup_path),
             &payload.password,
         )?;
 
@@ -833,7 +1056,7 @@ pub(crate) async fn change_password(
         encrypt_and_save_mnemonic(
             payload.new_password,
             mnemonic.to_string(),
-            get_mnemonic_path(&state.static_state.storage_dir_path),
+            &get_mnemonic_path(&state.static_state.storage_dir_path),
         )?;
 
         Ok(Json(EmptyResponse {}))
@@ -965,14 +1188,10 @@ pub(crate) async fn decode_rgb_invoice(
 
     Ok(Json(DecodeRGBInvoiceResponse {
         recipient_id: invoice_data.recipient_id,
-        asset_iface: invoice_data.asset_iface.map(|i| match i {
-            rgb_lib::wallet::AssetIface::RGB20 => AssetIface::RGB20,
-            rgb_lib::wallet::AssetIface::RGB21 => AssetIface::RGB21,
-            rgb_lib::wallet::AssetIface::RGB25 => AssetIface::RGB25,
-        }),
+        asset_iface: invoice_data.asset_iface.map(|i| i.into()),
         asset_id: invoice_data.asset_id,
         amount: invoice_data.amount,
-        network: invoice_data.network.map(|n| n.into()),
+        network: invoice_data.network.into(),
         expiration_timestamp: invoice_data.expiration_timestamp,
         transport_endpoints: invoice_data.transport_endpoints,
     }))
@@ -1033,7 +1252,7 @@ pub(crate) async fn init(
 
         let mnemonic = keys.mnemonic;
 
-        encrypt_and_save_mnemonic(payload.password, mnemonic.clone(), mnemonic_path)?;
+        encrypt_and_save_mnemonic(payload.password, mnemonic.clone(), &mnemonic_path)?;
 
         Ok(Json(InitResponse { mnemonic }))
     })
@@ -1065,10 +1284,32 @@ pub(crate) async fn invoice_status(
     Ok(Json(InvoiceStatusResponse { status }))
 }
 
-pub(crate) async fn issue_asset(
+pub(crate) async fn issue_asset_cfa(
     State(state): State<Arc<AppState>>,
-    WithRejection(Json(payload), _): WithRejection<Json<IssueAssetRequest>, APIError>,
-) -> Result<Json<IssueAssetResponse>, APIError> {
+    WithRejection(Json(payload), _): WithRejection<Json<IssueAssetCFARequest>, APIError>,
+) -> Result<Json<IssueAssetCFAResponse>, APIError> {
+    no_cancel(async move {
+        let unlocked_state = state.check_unlocked().await?.clone().unwrap();
+
+        let asset = unlocked_state.rgb_issue_asset_cfa(
+            payload.name,
+            payload.details,
+            payload.precision,
+            payload.amounts,
+            payload.file_path,
+        )?;
+
+        Ok(Json(IssueAssetCFAResponse {
+            asset: asset.into(),
+        }))
+    })
+    .await
+}
+
+pub(crate) async fn issue_asset_nia(
+    State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<IssueAssetNIARequest>, APIError>,
+) -> Result<Json<IssueAssetNIAResponse>, APIError> {
     no_cancel(async move {
         let unlocked_state = state.check_unlocked().await?.clone().unwrap();
 
@@ -1079,8 +1320,31 @@ pub(crate) async fn issue_asset(
             payload.amounts,
         )?;
 
-        Ok(Json(IssueAssetResponse {
-            asset_id: asset.asset_id,
+        Ok(Json(IssueAssetNIAResponse {
+            asset: asset.into(),
+        }))
+    })
+    .await
+}
+
+pub(crate) async fn issue_asset_uda(
+    State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<IssueAssetUDARequest>, APIError>,
+) -> Result<Json<IssueAssetUDAResponse>, APIError> {
+    no_cancel(async move {
+        let unlocked_state = state.check_unlocked().await?.clone().unwrap();
+
+        let asset = unlocked_state.rgb_issue_asset_uda(
+            payload.ticker,
+            payload.name,
+            payload.details,
+            payload.precision,
+            payload.media_file_path,
+            payload.attachments_file_paths,
+        )?;
+
+        Ok(Json(IssueAssetUDAResponse {
+            asset: asset.into(),
         }))
     })
     .await
@@ -1121,7 +1385,7 @@ pub(crate) async fn keysend(
                     &payment_hash,
                     contract_id,
                     rgb_amount,
-                    true,
+                    false,
                     false,
                 );
             }
@@ -1179,24 +1443,29 @@ pub(crate) async fn keysend(
 
 pub(crate) async fn list_assets(
     State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<ListAssetsRequest>, APIError>,
 ) -> Result<Json<ListAssetsResponse>, APIError> {
     let unlocked_state = state.check_unlocked().await?.clone().unwrap();
 
-    let rgb_assets = unlocked_state.rgb_list_assets()?;
+    let rgb_assets = unlocked_state.rgb_list_assets(
+        payload
+            .filter_asset_schemas
+            .into_iter()
+            .map(|s| s.into())
+            .collect(),
+    )?;
 
-    let mut assets = vec![];
-    for asset in rgb_assets.nia.unwrap() {
-        assets.push(Asset {
-            asset_id: asset.asset_id,
-            ticker: asset.ticker,
-            name: asset.name,
-            precision: asset.precision,
-            issued_supply: asset.issued_supply,
-            timestamp: asset.timestamp,
-        })
-    }
+    let nia = rgb_assets
+        .nia
+        .map(|assets| assets.into_iter().map(|a| a.into()).collect());
+    let uda = rgb_assets
+        .uda
+        .map(|assets| assets.into_iter().map(|a| a.into()).collect());
+    let cfa = rgb_assets
+        .cfa
+        .map(|assets| assets.into_iter().map(|a| a.into()).collect());
 
-    Ok(Json(ListAssetsResponse { assets }))
+    Ok(Json(ListAssetsResponse { nia, uda, cfa }))
 }
 
 pub(crate) async fn list_channels(
@@ -1241,9 +1510,11 @@ pub(crate) async fn list_channels(
             channel.inbound_balance_msat = Some(chan_info.inbound_capacity_msat);
         }
 
-        let ldk_data_dir_path = PathBuf::from(state.static_state.ldk_data_dir.clone());
-        let info_file_path =
-            get_rgb_channel_info_path(&chan_info.channel_id.to_hex(), &ldk_data_dir_path, false);
+        let info_file_path = get_rgb_channel_info_path(
+            &chan_info.channel_id.to_hex(),
+            &state.static_state.ldk_data_dir,
+            false,
+        );
         if info_file_path.exists() {
             let rgb_info = parse_rgb_channel_info(&info_file_path);
             channel.asset_id = Some(rgb_info.contract_id.to_string());
@@ -1265,11 +1536,10 @@ pub(crate) async fn list_payments(
     let inbound_payments = unlocked_state.inbound_payments();
     let outbound_payments = unlocked_state.outbound_payments();
     let mut payments = vec![];
-    let ldk_data_dir_path = Path::new(&state.static_state.ldk_data_dir);
 
     for (payment_hash, payment_info) in &inbound_payments {
         let rgb_payment_info_path_inbound =
-            get_rgb_payment_info_path(payment_hash, ldk_data_dir_path, true);
+            get_rgb_payment_info_path(payment_hash, &state.static_state.ldk_data_dir, true);
 
         let (asset_amount, asset_id) = if rgb_payment_info_path_inbound.exists() {
             let info = parse_rgb_payment_info(&rgb_payment_info_path_inbound);
@@ -1292,7 +1562,7 @@ pub(crate) async fn list_payments(
         let payment_hash = &PaymentHash(payment_id.0);
 
         let rgb_payment_info_path_outbound =
-            get_rgb_payment_info_path(payment_hash, ldk_data_dir_path, false);
+            get_rgb_payment_info_path(payment_hash, &state.static_state.ldk_data_dir, false);
 
         let (asset_amount, asset_id) = if rgb_payment_info_path_outbound.exists() {
             let info = parse_rgb_payment_info(&rgb_payment_info_path_outbound);
@@ -1580,7 +1850,6 @@ pub(crate) async fn maker_execute(
 ) -> Result<Json<EmptyResponse>, APIError> {
     no_cancel(async move {
         let unlocked_state = state.check_unlocked().await?.clone().unwrap();
-        let ldk_data_dir_path = PathBuf::from(state.static_state.ldk_data_dir.clone());
 
         let swapstring = SwapString::from_str(&payload.swapstring)
             .map_err(|e| APIError::InvalidSwapString(payload.swapstring.clone(), e.to_string()))?;
@@ -1608,8 +1877,11 @@ pub(crate) async fn maker_execute(
             .list_usable_channels()
             .iter()
             .filter(|details| {
-                match get_rgb_channel_info_optional(&details.channel_id, &ldk_data_dir_path, false)
-                {
+                match get_rgb_channel_info_optional(
+                    &details.channel_id,
+                    &state.static_state.ldk_data_dir,
+                    false,
+                ) {
                     _ if swap_info.is_from_btc() => true,
                     Some((rgb_info, _)) if Some(rgb_info.contract_id) == swap_info.from_asset => {
                         true
@@ -1732,11 +2004,11 @@ pub(crate) async fn maker_execute(
 
         if swap_info.is_to_asset() {
             write_rgb_payment_info_file(
-                &ldk_data_dir_path,
+                &state.static_state.ldk_data_dir,
                 &swapstring.payment_hash,
                 swap_info.to_asset.unwrap(),
                 swap_info.qty_to,
-                false,
+                true,
                 false,
             );
         }
@@ -1777,7 +2049,6 @@ pub(crate) async fn maker_init(
 ) -> Result<Json<MakerInitResponse>, APIError> {
     no_cancel(async move {
         let unlocked_state = state.check_unlocked().await?.clone().unwrap();
-        let ldk_data_dir_path = PathBuf::from(state.static_state.ldk_data_dir.clone());
 
         let from_asset = match &payload.from_asset {
             None => None,
@@ -1820,7 +2091,7 @@ pub(crate) async fn maker_init(
         if let Some(to_asset) = to_asset {
             let max_balance = get_max_local_rgb_amount(
                 to_asset,
-                &ldk_data_dir_path,
+                &state.static_state.ldk_data_dir,
                 unlocked_state.channel_manager.list_channels().iter(),
             );
             if swap_info.qty_to > max_balance {
@@ -1977,27 +2248,28 @@ pub(crate) async fn open_channel(
         tracing::info!("EVENT: initiated channel with peer {}", peer_pubkey);
 
         if let Some((contract_id, asset_amount)) = &colored_info {
-            let peer_data_path = format!(
-                "{}/channel_peer_data",
-                state.static_state.ldk_data_dir.clone()
-            );
-            let _ = disk::persist_channel_peer(
-                Path::new(&peer_data_path),
-                &payload.peer_pubkey_and_addr,
-            );
+            let peer_data_path = state.static_state.ldk_data_dir.join("channel_peer_data");
+            let _ = disk::persist_channel_peer(&peer_data_path, &payload.peer_pubkey_and_addr);
 
             let rgb_info = RgbInfo {
                 contract_id: *contract_id,
                 local_rgb_amount: *asset_amount,
                 remote_rgb_amount: 0,
             };
-            let ldk_data_dir_path = PathBuf::from(&state.static_state.ldk_data_dir);
             write_rgb_channel_info(
-                &get_rgb_channel_info_path(&temporary_channel_id, &ldk_data_dir_path, true),
+                &get_rgb_channel_info_path(
+                    &temporary_channel_id,
+                    &state.static_state.ldk_data_dir,
+                    true,
+                ),
                 &rgb_info,
             );
             write_rgb_channel_info(
-                &get_rgb_channel_info_path(&temporary_channel_id, &ldk_data_dir_path, false),
+                &get_rgb_channel_info_path(
+                    &temporary_channel_id,
+                    &state.static_state.ldk_data_dir,
+                    false,
+                ),
                 &rgb_info,
             );
         }
@@ -2036,7 +2308,7 @@ pub(crate) async fn restore(
         check_already_initialized(&mnemonic_path)?;
 
         restore_backup(
-            &payload.backup_path,
+            Path::new(&payload.backup_path),
             &payload.password,
             &state.static_state.storage_dir_path,
         )?;
@@ -2078,17 +2350,17 @@ pub(crate) async fn send_asset(
     no_cancel(async move {
         let unlocked_state = state.check_unlocked().await?.clone().unwrap();
 
-        let secret_seal = SecretSeal::from_str(&payload.blinded_utxo)
-            .map_err(|e| APIError::InvalidBlindedUTXO(e.to_string()))?;
+        RecipientInfo::new(payload.recipient_id.clone())?;
         let recipient_map = map! {
             payload.asset_id => vec![Recipient {
-                recipient_data: RecipientData::BlindedUTXO(secret_seal),
+                recipient_id: payload.recipient_id,
+                witness_data: None,
                 amount: payload.amount,
                 transport_endpoints: payload.transport_endpoints,
             }]
         };
 
-        let txid = tokio::task::spawn_blocking(move || {
+        let send_result = tokio::task::spawn_blocking(move || {
             unlocked_state.rgb_send(
                 recipient_map,
                 payload.donation,
@@ -2099,7 +2371,9 @@ pub(crate) async fn send_asset(
         .await
         .unwrap()?;
 
-        Ok(Json(SendAssetResponse { txid }))
+        Ok(Json(SendAssetResponse {
+            txid: send_result.txid,
+        }))
     })
     .await
 }
@@ -2220,7 +2494,7 @@ pub(crate) async fn send_payment(
                 &payment_hash,
                 rgb_contract_id,
                 rgb_amount,
-                true,
+                false,
                 false,
             ),
             (None, None) => {}
@@ -2314,7 +2588,6 @@ pub(crate) async fn taker(
 ) -> Result<Json<EmptyResponse>, APIError> {
     no_cancel(async move {
         let unlocked_state = state.check_unlocked().await?.clone().unwrap();
-        let ldk_data_dir_path = PathBuf::from(state.static_state.ldk_data_dir.clone());
         let swapstring = SwapString::from_str(&payload.swapstring)
             .map_err(|e| APIError::InvalidSwapString(payload.swapstring.clone(), e.to_string()))?;
 
@@ -2326,7 +2599,7 @@ pub(crate) async fn taker(
         if let Some(from_asset) = swapstring.swap_info.from_asset {
             let max_balance = get_max_local_rgb_amount(
                 from_asset,
-                &ldk_data_dir_path,
+                &state.static_state.ldk_data_dir,
                 unlocked_state.channel_manager.list_channels().iter(),
             );
             if swapstring.swap_info.qty_from > max_balance {

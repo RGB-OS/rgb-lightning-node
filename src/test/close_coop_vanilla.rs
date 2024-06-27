@@ -14,9 +14,9 @@ async fn close_coop_vanilla() {
     let test_dir_node1 = format!("{TEST_DIR_BASE}node1");
     let test_dir_node2 = format!("{TEST_DIR_BASE}node2");
     let test_dir_node3 = format!("{TEST_DIR_BASE}node3");
-    let (node1_addr, _) = start_node(test_dir_node1, NODE1_PEER_PORT, false).await;
-    let (node2_addr, _) = start_node(test_dir_node2, NODE2_PEER_PORT, false).await;
-    let (node3_addr, _) = start_node(test_dir_node3, NODE3_PEER_PORT, false).await;
+    let (node1_addr, _) = start_node(&test_dir_node1, NODE1_PEER_PORT, false).await;
+    let (node2_addr, _) = start_node(&test_dir_node2, NODE2_PEER_PORT, false).await;
+    let (node3_addr, _) = start_node(&test_dir_node3, NODE3_PEER_PORT, false).await;
 
     let unspents = list_unspents(node1_addr).await;
     assert_eq!(unspents.len(), 0);
@@ -25,16 +25,23 @@ async fn close_coop_vanilla() {
     fund_and_create_utxos(node2_addr).await;
     fund_and_create_utxos(node3_addr).await;
 
-    let initial_balance = 99677060;
+    let initial_balance = 99676206;
 
-    assert_eq!(btc_balance(node1_addr).await, initial_balance);
-    assert_eq!(btc_balance(node2_addr).await, initial_balance);
-    assert_eq!(btc_balance(node3_addr).await, initial_balance);
+    assert_eq!(
+        btc_balance(node1_addr).await.vanilla.spendable,
+        initial_balance
+    );
+    assert_eq!(
+        btc_balance(node2_addr).await.vanilla.spendable,
+        initial_balance
+    );
+    assert_eq!(
+        btc_balance(node3_addr).await.vanilla.spendable,
+        initial_balance
+    );
 
-    let node1_info = node_info(node1_addr).await;
-    let node2_info = node_info(node2_addr).await;
-    let node1_pubkey = node1_info.pubkey;
-    let node2_pubkey = node2_info.pubkey;
+    let node1_pubkey = node_info(node1_addr).await.pubkey;
+    let node2_pubkey = node_info(node2_addr).await.pubkey;
 
     let peers = list_peers(node1_addr).await;
     assert!(!peers.iter().any(|p| p.pubkey == node2_pubkey));

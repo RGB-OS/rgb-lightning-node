@@ -5,7 +5,13 @@ use axum::{
     Json,
 };
 use bitcoin::Network;
-use serde_json::json;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct APIErrorResponse {
+    pub(crate) error: String,
+    pub(crate) code: u16,
+}
 
 /// The error variants returned by APIs
 #[derive(Debug, thiserror::Error)]
@@ -76,9 +82,6 @@ pub enum APIError {
     #[error("Invalid backup path")]
     InvalidBackupPath,
 
-    #[error("Invalid blinded UTXO: {0}")]
-    InvalidBlindedUTXO(String),
-
     #[error("Invalid channel ID")]
     InvalidChannelID,
 
@@ -111,6 +114,12 @@ pub enum APIError {
 
     #[error("Invalid pubkey")]
     InvalidPubkey,
+
+    #[error("The provided recipient ID is neither a blinded UTXO or a script")]
+    InvalidRecipientID,
+
+    #[error("The provided recipient ID is for a different network than the wallet's one")]
+    InvalidRecipientNetwork,
 
     #[error("Invalid swap: {0}")]
     InvalidSwap(String),
@@ -150,9 +159,6 @@ pub enum APIError {
 
     #[error("Output below the dust limit")]
     OutputBelowDustLimit,
-
-    #[error("Proxy error: {0}")]
-    Proxy(#[from] reqwest::Error),
 
     #[error("Recipient ID already used")]
     RecipientIDAlreadyUsed,
@@ -194,7 +200,6 @@ impl IntoResponse for APIError {
             | APIError::FailedSendingOnionMessage(_)
             | APIError::FailedStartingLDK(_)
             | APIError::IO(_)
-            | APIError::Proxy(_)
             | APIError::Unexpected => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             APIError::AnchorsRequired
             | APIError::ExpiredSwapOffer
@@ -202,7 +207,6 @@ impl IntoResponse for APIError {
             | APIError::InvalidAmount(_)
             | APIError::InvalidAssetID(_)
             | APIError::InvalidBackupPath
-            | APIError::InvalidBlindedUTXO(_)
             | APIError::InvalidChannelID
             | APIError::InvalidFeeRate(_)
             | APIError::InvalidInvoice(_)
@@ -214,6 +218,8 @@ impl IntoResponse for APIError {
             | APIError::InvalidPeerInfo(_)
             | APIError::InvalidPrecision(_)
             | APIError::InvalidPubkey
+            | APIError::InvalidRecipientID
+            | APIError::InvalidRecipientNetwork
             | APIError::InvalidSwap(_)
             | APIError::InvalidSwapString(_, _)
             | APIError::InvalidTicker(_)
@@ -240,10 +246,13 @@ impl IntoResponse for APIError {
             | APIError::UnlockedNode => (StatusCode::FORBIDDEN, self.to_string()),
         };
 
-        let body = Json(json!({
-            "error": error_message,
-            "code": status.as_u16(),
-        }));
+        let body = Json(
+            serde_json::to_value(APIErrorResponse {
+                error: error_message,
+                code: status.as_u16(),
+            })
+            .unwrap(),
+        );
 
         (status, body).into_response()
     }

@@ -20,15 +20,8 @@ it also on other networks.
 Please be careful, this software is early alpha, we do not take any
 responsibility for loss of funds or any other issue you may encounter.
 
-Also note that the following RGB projects (included in this project as git
-sumbodules) have been modified in order to make the creation of static
-consignments (without entropy) possible. Here links to compare the applied
-changes:
-- [client_side_validation](https://github.com/RGB-Tools/client_side_validation/compare/v0.10.6...static_0.10.6)
-- [rgb-wallet](https://github.com/RGB-Tools/rgb-wallet/compare/v0.10.9...static_v0.10.9)
-
-But most importantly [rust-lightning] has been changed in order to support
-RGB channels,
+Also note that [rust-lightning] has been changed in order to support RGB
+channels,
 [here](https://github.com/RGB-Tools/rust-lightning/compare/v0.0.118...rgb)
 a comparison with `v0.0.118`, the version we applied the changes to.
 
@@ -49,7 +42,7 @@ cargo install --debug --path .
 
 In order to operate, the node will need:
 - a bitcoind node
-- an electrs instance
+- an indexer instance (electrum or esplora)
 - an [RGB proxy server] instance
 
 Once services are running, daemons can be started.
@@ -157,9 +150,11 @@ The node currently exposes the following APIs:
 - `/disconnectpeer` (POST)
 - `/init` (POST)
 - `/invoicestatus` (POST)
-- `/issueasset` (POST)
+- `/issueassetcfa` (POST)
+- `/issueassetnia` (POST)
+- `/issueassetuda` (POST)
 - `/keysend` (POST)
-- `/listassets` (GET)
+- `/listassets` (POST)
 - `/listchannels` (GET)
 - `/listpayments` (GET)
 - `/listpeers` (GET)
