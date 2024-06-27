@@ -1,3 +1,5 @@
+use self::routes::HTLC_MIN_MSAT;
+
 use super::*;
 
 const TEST_DIR_BASE: &str = "tmp/swap_roundtrip_multihop_sell/";
@@ -16,17 +18,17 @@ async fn swap_roundtrip_multihop_sell() {
     let test_dir_node2 = format!("{TEST_DIR_BASE}node2");
     let test_dir_node3 = format!("{TEST_DIR_BASE}node3");
     let test_dir_node4 = format!("{TEST_DIR_BASE}node4");
-    let (node1_addr, _) = start_node(test_dir_node1.clone(), NODE1_PEER_PORT, false).await;
-    let (node2_addr, _) = start_node(test_dir_node2.clone(), NODE2_PEER_PORT, false).await;
-    let (node3_addr, _) = start_node(test_dir_node3.clone(), NODE3_PEER_PORT, false).await;
-    let (node4_addr, _) = start_node(test_dir_node4, NODE4_PEER_PORT, false).await;
+    let (node1_addr, _) = start_node(&test_dir_node1, NODE1_PEER_PORT, false).await;
+    let (node2_addr, _) = start_node(&test_dir_node2, NODE2_PEER_PORT, false).await;
+    let (node3_addr, _) = start_node(&test_dir_node3, NODE3_PEER_PORT, false).await;
+    let (node4_addr, _) = start_node(&test_dir_node4, NODE4_PEER_PORT, false).await;
 
     fund_and_create_utxos(node1_addr).await;
     fund_and_create_utxos(node2_addr).await;
     fund_and_create_utxos(node3_addr).await;
     fund_and_create_utxos(node4_addr).await;
 
-    let asset_id = issue_asset(node1_addr).await;
+    let asset_id = issue_asset_nia(node1_addr).await.asset_id;
 
     let recipient_id = rgb_invoice(node2_addr, None).await.recipient_id;
     send_asset(node1_addr, &asset_id, 400, recipient_id).await;
@@ -36,12 +38,9 @@ async fn swap_roundtrip_multihop_sell() {
     refresh_transfers(node1_addr).await;
     assert_eq!(asset_balance_spendable(node1_addr, &asset_id).await, 600);
 
-    let node1_info = node_info(node1_addr).await;
-    let node1_pubkey = node1_info.pubkey;
-    let node2_info = node_info(node2_addr).await;
-    let node2_pubkey = node2_info.pubkey;
-    let node3_info = node_info(node3_addr).await;
-    let node3_pubkey = node3_info.pubkey;
+    let node1_pubkey = node_info(node1_addr).await.pubkey;
+    let node2_pubkey = node_info(node2_addr).await.pubkey;
+    let node3_pubkey = node_info(node3_addr).await.pubkey;
 
     let channel_12 = open_channel(
         node1_addr,
@@ -64,6 +63,16 @@ async fn swap_roundtrip_multihop_sell() {
     )
     .await;
 
+    let channel_32 = open_channel(
+        node3_addr,
+        &node2_pubkey,
+        NODE3_PEER_PORT,
+        Some(50000),
+        Some(0),
+        None,
+        None,
+    )
+    .await;
     let channel_21 = open_channel(
         node2_addr,
         &node1_pubkey,
@@ -74,16 +83,42 @@ async fn swap_roundtrip_multihop_sell() {
         None,
     )
     .await;
-    let channel_32 = open_channel(
-        node3_addr,
-        &node2_pubkey,
-        NODE2_PEER_PORT,
-        Some(50000),
-        Some(0),
-        None,
-        None,
-    )
-    .await;
+
+    let channels_1_before = list_channels(node1_addr).await;
+    let channels_2_before = list_channels(node2_addr).await;
+    let channels_3_before = list_channels(node3_addr).await;
+    let chan_1_12_before = channels_1_before
+        .iter()
+        .find(|c| c.channel_id == channel_12.channel_id)
+        .unwrap();
+    let chan_1_21_before = channels_1_before
+        .iter()
+        .find(|c| c.channel_id == channel_21.channel_id)
+        .unwrap();
+    let chan_2_12_before = channels_2_before
+        .iter()
+        .find(|c| c.channel_id == channel_12.channel_id)
+        .unwrap();
+    let chan_2_23_before = channels_2_before
+        .iter()
+        .find(|c| c.channel_id == channel_23.channel_id)
+        .unwrap();
+    let chan_2_32_before = channels_2_before
+        .iter()
+        .find(|c| c.channel_id == channel_32.channel_id)
+        .unwrap();
+    let chan_2_21_before = channels_2_before
+        .iter()
+        .find(|c| c.channel_id == channel_21.channel_id)
+        .unwrap();
+    let chan_3_23_before = channels_3_before
+        .iter()
+        .find(|c| c.channel_id == channel_23.channel_id)
+        .unwrap();
+    let chan_3_32_before = channels_3_before
+        .iter()
+        .find(|c| c.channel_id == channel_32.channel_id)
+        .unwrap();
 
     println!("\nsetup swap");
     let maker_addr = node3_addr;
@@ -139,9 +174,9 @@ async fn swap_roundtrip_multihop_sell() {
 
     println!("\nrestart nodes");
     shutdown(&[node1_addr, node2_addr, node3_addr]).await;
-    let (node1_addr, _) = start_node(test_dir_node1.clone(), NODE1_PEER_PORT, true).await;
-    let (node2_addr, _) = start_node(test_dir_node2.clone(), NODE2_PEER_PORT, true).await;
-    let (node3_addr, _) = start_node(test_dir_node3.clone(), NODE3_PEER_PORT, true).await;
+    let (node1_addr, _) = start_node(&test_dir_node1, NODE1_PEER_PORT, true).await;
+    let (node2_addr, _) = start_node(&test_dir_node2, NODE2_PEER_PORT, true).await;
+    let (node3_addr, _) = start_node(&test_dir_node3, NODE3_PEER_PORT, true).await;
     let maker_addr = node3_addr;
     let taker_addr = node1_addr;
 
@@ -169,6 +204,76 @@ async fn swap_roundtrip_multihop_sell() {
     assert!(payments_maker.is_empty());
     let payments_taker = list_payments(taker_addr).await;
     assert!(payments_taker.is_empty());
+
+    let channels_1 = list_channels(node1_addr).await;
+    let channels_2 = list_channels(node2_addr).await;
+    let channels_3 = list_channels(node3_addr).await;
+    let chan_1_12 = channels_1
+        .iter()
+        .find(|c| c.channel_id == channel_12.channel_id)
+        .unwrap();
+    let chan_1_21 = channels_1
+        .iter()
+        .find(|c| c.channel_id == channel_21.channel_id)
+        .unwrap();
+    let chan_2_12 = channels_2
+        .iter()
+        .find(|c| c.channel_id == channel_12.channel_id)
+        .unwrap();
+    let chan_2_23 = channels_2
+        .iter()
+        .find(|c| c.channel_id == channel_23.channel_id)
+        .unwrap();
+    let chan_2_32 = channels_2
+        .iter()
+        .find(|c| c.channel_id == channel_32.channel_id)
+        .unwrap();
+    let chan_2_21 = channels_2
+        .iter()
+        .find(|c| c.channel_id == channel_21.channel_id)
+        .unwrap();
+    let chan_3_23 = channels_3
+        .iter()
+        .find(|c| c.channel_id == channel_23.channel_id)
+        .unwrap();
+    let chan_3_32 = channels_3
+        .iter()
+        .find(|c| c.channel_id == channel_32.channel_id)
+        .unwrap();
+    let btc_leg_diff = HTLC_MIN_MSAT + qty_to;
+    let fees = 1000;
+    assert_eq!(
+        chan_3_32.local_balance_msat,
+        chan_3_32_before.local_balance_msat - btc_leg_diff - (fees * 2)
+    );
+    assert_eq!(
+        chan_2_32.local_balance_msat,
+        chan_2_32_before.local_balance_msat + btc_leg_diff + (fees * 2)
+    );
+    assert_eq!(
+        chan_2_21.local_balance_msat,
+        chan_2_21_before.local_balance_msat - btc_leg_diff - fees
+    );
+    assert_eq!(
+        chan_1_21.local_balance_msat,
+        chan_1_21_before.local_balance_msat + btc_leg_diff + fees
+    );
+    assert_eq!(
+        chan_1_12.local_balance_msat,
+        chan_1_12_before.local_balance_msat - HTLC_MIN_MSAT - fees
+    );
+    assert_eq!(
+        chan_2_12.local_balance_msat,
+        chan_2_12_before.local_balance_msat + HTLC_MIN_MSAT + fees
+    );
+    assert_eq!(
+        chan_2_23.local_balance_msat,
+        chan_2_23_before.local_balance_msat - HTLC_MIN_MSAT
+    );
+    assert_eq!(
+        chan_3_23.local_balance_msat,
+        chan_3_23_before.local_balance_msat + HTLC_MIN_MSAT
+    );
 
     println!("\nclose channels");
     close_channel(node1_addr, &channel_12.channel_id, &node2_pubkey, false).await;

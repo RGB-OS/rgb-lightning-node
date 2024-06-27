@@ -7,20 +7,19 @@ const NODE2_PEER_PORT: u16 = 9822;
 #[serial_test::serial]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 #[traced_test]
-async fn swap_fail_timeout() {
+async fn swap_roundtrip_fail_timeout() {
     initialize();
 
     let test_dir_node1 = format!("{TEST_DIR_BASE}node1");
     let test_dir_node2 = format!("{TEST_DIR_BASE}node2");
-    let (node1_addr, _) = start_node(test_dir_node1, NODE1_PEER_PORT, false).await;
-    let (node2_addr, _) = start_node(test_dir_node2, NODE2_PEER_PORT, false).await;
+    let (node1_addr, _) = start_node(&test_dir_node1, NODE1_PEER_PORT, false).await;
+    let (node2_addr, _) = start_node(&test_dir_node2, NODE2_PEER_PORT, false).await;
 
     fund_and_create_utxos(node1_addr).await;
 
-    let asset_id = issue_asset(node1_addr).await;
+    let asset_id = issue_asset_nia(node1_addr).await.asset_id;
 
-    let node2_info = node_info(node2_addr).await;
-    let node2_pubkey = node2_info.pubkey;
+    let node2_pubkey = node_info(node2_addr).await.pubkey;
 
     open_channel(
         node1_addr,
@@ -114,14 +113,20 @@ async fn swap_fail_timeout() {
     assert_eq!(swap_taker.status, SwapStatus::Waiting);
 
     // wait for the swap to expire
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_secs(15)).await;
 
     // execute the expired swap
-    maker_execute(
+    let res = maker_execute_raw(
         maker_addr,
         maker_init_response_2.swapstring,
         maker_init_response_2.payment_secret,
         node2_pubkey.clone(),
+    )
+    .await;
+    check_response_is_nok(
+        res,
+        reqwest::StatusCode::BAD_REQUEST,
+        "The swap offer has expired",
     )
     .await;
 

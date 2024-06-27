@@ -13,17 +13,15 @@ async fn backup_and_restore() {
 
     let test_dir_node1 = format!("{TEST_DIR_BASE}node1");
     let test_dir_node2 = format!("{TEST_DIR_BASE}node2");
-    let (node1_addr, node1_password) =
-        start_node(test_dir_node1.clone(), NODE1_PEER_PORT, false).await;
-    let (node2_addr, _) = start_node(test_dir_node2, NODE2_PEER_PORT, false).await;
+    let (node1_addr, node1_password) = start_node(&test_dir_node1, NODE1_PEER_PORT, false).await;
+    let (node2_addr, _) = start_node(&test_dir_node2, NODE2_PEER_PORT, false).await;
 
     fund_and_create_utxos(node1_addr).await;
     fund_and_create_utxos(node2_addr).await;
 
-    let asset_id = issue_asset(node1_addr).await;
+    let asset_id = issue_asset_nia(node1_addr).await.asset_id;
 
-    let node2_info = node_info(node2_addr).await;
-    let node2_pubkey = node2_info.pubkey;
+    let node2_pubkey = node_info(node2_addr).await.pubkey;
 
     let channel = open_channel(
         node1_addr,
@@ -43,8 +41,7 @@ async fn backup_and_restore() {
     wait_for_balance(node1_addr, &asset_id, 900).await;
     wait_for_balance(node2_addr, &asset_id, 100).await;
 
-    let node1_info = node_info(node1_addr).await;
-    let node1_pubkey = node1_info.pubkey;
+    let node1_pubkey = node_info(node1_addr).await.pubkey;
 
     lock(node1_addr).await;
 
@@ -65,11 +62,7 @@ async fn backup_and_restore() {
         .send()
         .await
         .unwrap();
-    assert_eq!(res.status(), reqwest::StatusCode::BAD_REQUEST);
-    let text = res.text().await.unwrap();
-    let response: ErrorResponse = serde_json::from_str(&text).unwrap();
-    assert_eq!(response.error, "Invalid backup path");
-    assert_eq!(response.code, 400);
+    check_response_is_nok(res, reqwest::StatusCode::BAD_REQUEST, "Invalid backup path").await;
 
     shutdown(&[node1_addr, node2_addr]).await;
 
