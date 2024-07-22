@@ -22,8 +22,8 @@ responsibility for loss of funds or any other issue you may encounter.
 
 Also note that [rust-lightning] has been changed in order to support RGB
 channels,
-[here](https://github.com/RGB-Tools/rust-lightning/compare/v0.0.118...rgb)
-a comparison with `v0.0.118`, the version we applied the changes to.
+[here](https://github.com/RGB-Tools/rust-lightning/compare/v0.0.123...rgb)
+a comparison with `v0.0.123`, the version we applied the changes to.
 
 ## Install
 
@@ -148,6 +148,7 @@ The node currently exposes the following APIs:
 - `/decodelninvoice` (POST)
 - `/decodergbinvoice` (POST)
 - `/disconnectpeer` (POST)
+- `/getassetmedia` (POST)
 - `/init` (POST)
 - `/invoicestatus` (POST)
 - `/issueassetcfa` (POST)

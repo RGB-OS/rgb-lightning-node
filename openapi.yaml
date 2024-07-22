@@ -151,7 +151,7 @@ paths:
       tags:
         - RGB
       summary: Create UTXOs
-      description: Create a fixed number of UTXOs to be used for RGB operations
+      description: Create UTXOs to be used for RGB operations
       requestBody:
         content:
           application/json:
@@ -218,6 +218,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EmptyResponse'
+  /getassetmedia:
+    post:
+      tags:
+        - RGB
+      summary: Get an asset media
+      description: Get the hex string of the media bytes of the provided media digest
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetAssetMediaRequest'
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetAssetMediaResponse'
   /init:
     post:
       tags:
@@ -1008,6 +1026,9 @@ components:
         num:
           type: integer
           example: 4
+        size:
+          type: integer
+          example: 32500
     DecodeLNInvoiceRequest:
       type: object
       properties:
@@ -1081,6 +1102,18 @@ components:
           example: 03b79a4bc1ec365524b4fab9a39eb133753646babb5a1da5c4bc94c53110b7795d
     EmptyResponse:
       type: object
+    GetAssetMediaRequest:
+      type: object
+      properties:
+        digest:
+          type: string
+          example: 5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03
+    GetAssetMediaResponse:
+      type: object
+      properties:
+        bytes_hex:
+          type: string
+          example: 68656c6c6f0a
     HTLCStatus:
       type: string
       enum:
