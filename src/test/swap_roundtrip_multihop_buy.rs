@@ -3,10 +3,6 @@ use self::routes::HTLC_MIN_MSAT;
 use super::*;
 
 const TEST_DIR_BASE: &str = "tmp/swap_roundtrip_multihop_buy/";
-const NODE1_PEER_PORT: u16 = 9821;
-const NODE2_PEER_PORT: u16 = 9822;
-const NODE3_PEER_PORT: u16 = 9823;
-const NODE4_PEER_PORT: u16 = 9824;
 
 #[serial_test::serial]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -23,10 +19,10 @@ async fn swap_roundtrip_multihop_buy() {
     let (node3_addr, _) = start_node(&test_dir_node3, NODE3_PEER_PORT, false).await;
     let (node4_addr, _) = start_node(&test_dir_node4, NODE4_PEER_PORT, false).await;
 
-    fund_and_create_utxos(node1_addr).await;
-    fund_and_create_utxos(node2_addr).await;
-    fund_and_create_utxos(node3_addr).await;
-    fund_and_create_utxos(node4_addr).await;
+    fund_and_create_utxos(node1_addr, None).await;
+    fund_and_create_utxos(node2_addr, None).await;
+    fund_and_create_utxos(node3_addr, None).await;
+    fund_and_create_utxos(node4_addr, None).await;
 
     let asset_id = issue_asset_nia(node1_addr).await.asset_id;
 

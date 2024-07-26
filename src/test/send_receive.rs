@@ -3,8 +3,6 @@ use crate::routes::{AssetIface, BitcoinNetwork};
 use super::*;
 
 const TEST_DIR_BASE: &str = "tmp/send_receive/";
-const NODE1_PEER_PORT: u16 = 9811;
-const NODE2_PEER_PORT: u16 = 9812;
 
 #[serial_test::serial]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -21,8 +19,8 @@ async fn send_receive() {
     assert_eq!(net_info.network, BitcoinNetwork::Regtest);
     let height_1 = net_info.height;
 
-    fund_and_create_utxos(node1_addr).await;
-    fund_and_create_utxos(node2_addr).await;
+    fund_and_create_utxos(node1_addr, None).await;
+    fund_and_create_utxos(node2_addr, None).await;
 
     let asset_id = issue_asset_nia(node1_addr).await.asset_id;
 

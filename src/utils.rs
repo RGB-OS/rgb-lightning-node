@@ -106,6 +106,7 @@ pub(crate) struct UnlockedAppState {
     pub(crate) rgb_wallet_wrapper: Arc<RgbLibWalletWrapper>,
     pub(crate) router: Arc<Router>,
     pub(crate) output_sweeper: Arc<OutputSweeper>,
+    pub(crate) rgb_send_lock: Arc<Mutex<bool>>,
 }
 
 impl UnlockedAppState {
@@ -434,7 +435,7 @@ pub(crate) fn get_route(
     start: PublicKey,
     dest: PublicKey,
     final_value_msat: Option<u64>,
-    asset_id: Option<ContractId>,
+    rgb_payment: Option<(ContractId, u64)>,
     hints: Vec<RouteHint>,
 ) -> Option<Route> {
     let inflight_htlcs = channel_manager.compute_inflight_htlcs();
@@ -458,10 +459,10 @@ pub(crate) fn get_route(
             payment_params,
             final_value_msat: final_value_msat.unwrap_or(HTLC_MIN_MSAT),
             max_total_routing_fee_msat: None,
+            rgb_payment,
         },
         None,
         inflight_htlcs,
-        asset_id,
     );
 
     route.ok()

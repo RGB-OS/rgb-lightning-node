@@ -1,7 +1,6 @@
 use super::*;
 
 const TEST_DIR_BASE: &str = "tmp/issue/";
-const NODE1_PEER_PORT: u16 = 9821;
 
 #[serial_test::serial]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -15,7 +14,7 @@ async fn issue() {
     let test_dir_node1 = format!("{TEST_DIR_BASE}node1");
     let (node1_addr, _) = start_node(&test_dir_node1, NODE1_PEER_PORT, false).await;
 
-    fund_and_create_utxos(node1_addr).await;
+    fund_and_create_utxos(node1_addr, None).await;
 
     // check /createutxos size parameter
     let unspents_1 = list_unspents(node1_addr).await;

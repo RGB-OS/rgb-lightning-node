@@ -3,13 +3,14 @@ use bitcoin::Network;
 use electrum_client::ElectrumApi;
 use lightning_invoice::Bolt11Invoice;
 use once_cell::sync::Lazy;
-use std::net::{SocketAddr, TcpListener};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::sync::{Once, RwLock};
 use time::OffsetDateTime;
 use tokio::io::AsyncReadExt;
+use tokio::net::TcpListener;
 use tracing_test::traced_test;
 
 use crate::error::APIErrorResponse;
@@ -36,6 +37,10 @@ use crate::utils::{hex_str_to_vec, PROXY_ENDPOINT_REGTEST};
 use super::*;
 
 const ELECTRUM_URL: &str = "127.0.0.1:50001";
+const NODE1_PEER_PORT: u16 = 9801;
+const NODE2_PEER_PORT: u16 = 9802;
+const NODE3_PEER_PORT: u16 = 9803;
+const NODE4_PEER_PORT: u16 = 9804;
 
 static INIT: Once = Once::new();
 
@@ -123,7 +128,7 @@ fn _get_txout(txid: &str) -> String {
 }
 
 async fn start_daemon(node_test_dir: &str, node_peer_port: u16) -> SocketAddr {
-    let listener = TcpListener::bind("0.0.0.0:0".parse::<SocketAddr>().unwrap()).unwrap();
+    let listener = TcpListener::bind("0.0.0.0:0").await.unwrap();
     let node_address = listener.local_addr().unwrap();
     std::fs::create_dir_all(node_test_dir).unwrap();
     let args = LdkUserInfo {
@@ -133,9 +138,7 @@ async fn start_daemon(node_test_dir: &str, node_peer_port: u16) -> SocketAddr {
     };
     tokio::spawn(async move {
         let (router, app_state) = app(args).await.unwrap();
-        axum::Server::from_tcp(listener)
-            .unwrap()
-            .serve(router.into_make_service())
+        axum::serve(listener, router)
             .with_graceful_shutdown(shutdown_signal(app_state))
             .await
             .unwrap();
@@ -434,14 +437,14 @@ async fn disconnect_peer(node_address: SocketAddr, peer_pubkey: &str) {
         .unwrap();
 }
 
-async fn fund_and_create_utxos(node_address: SocketAddr) {
+async fn fund_and_create_utxos(node_address: SocketAddr, num: Option<u8>) {
     println!("funding wallet for node {node_address}");
     let addr = address(node_address).await;
 
     _fund_wallet(addr);
     mine(false);
 
-    create_utxos(node_address, false, Some(10), None).await;
+    create_utxos(node_address, false, Some(num.unwrap_or(10)), None).await;
     mine(false);
 }
 
@@ -1205,7 +1208,7 @@ async fn shutdown(node_sockets: &[SocketAddr]) {
         let mut last_checked = node_sockets[0];
         for node_socket in node_sockets {
             last_checked = *node_socket;
-            if TcpListener::bind(*node_socket).is_err() {
+            if TcpListener::bind(*node_socket).await.is_err() {
                 all_sockets_available = false;
             }
         }
@@ -1498,12 +1501,14 @@ mod close_force_nobtc_acceptor;
 mod close_force_other_side;
 mod close_force_standard;
 mod concurrent_btc_payments;
+mod htlc_amount_checks;
 mod invoice;
 mod issue;
 mod lock_unlock_changepassword;
 mod multi_hop;
 mod multi_open_close;
 mod open_after_double_send;
+mod openchannel_fail;
 mod payment;
 mod refuse_high_fees;
 mod restart;

@@ -1,9 +1,6 @@
 use super::*;
 
 const TEST_DIR_BASE: &str = "tmp/close_coop_standard/";
-const NODE1_PEER_PORT: u16 = 9801;
-const NODE2_PEER_PORT: u16 = 9802;
-const NODE3_PEER_PORT: u16 = 9803;
 
 #[serial_test::serial]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -21,9 +18,9 @@ async fn close_coop_standard() {
     let unspents = list_unspents(node1_addr).await;
     assert_eq!(unspents.len(), 0);
 
-    fund_and_create_utxos(node1_addr).await;
-    fund_and_create_utxos(node2_addr).await;
-    fund_and_create_utxos(node3_addr).await;
+    fund_and_create_utxos(node1_addr, None).await;
+    fund_and_create_utxos(node2_addr, None).await;
+    fund_and_create_utxos(node3_addr, None).await;
 
     let unspents = list_unspents(node1_addr).await;
     assert_eq!(unspents.len(), 11);
