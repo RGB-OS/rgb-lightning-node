@@ -70,12 +70,12 @@ use crate::ldk::{start_ldk, stop_ldk, LdkBackgroundServices, MIN_CHANNEL_CONFIRM
 use crate::rgb::get_rgb_channel_info_optional;
 use crate::swap::{SwapData, SwapInfo, SwapString};
 use crate::utils::{
-    check_already_initialized, check_password_strength, check_password_validity,
+    check_already_initialized, check_channel_id, check_password_strength, check_password_validity,
     encrypt_and_save_mnemonic, get_max_local_rgb_amount, get_mnemonic_path, get_route, hex_str,
     hex_str_to_compressed_pubkey, hex_str_to_vec, UnlockedAppState, UserOnionMessageContents,
 };
 use crate::{
-    disk,
+    disk::{self, CHANNEL_PEER_DATA},
     error::APIError,
     ldk::{PaymentInfo, FEE_RATE, UTXO_SIZE_SAT},
     utils::{
@@ -410,6 +410,16 @@ pub(crate) struct GetAssetMediaResponse {
     pub(crate) bytes_hex: String,
 }
 
+#[derive(Deserialize, Serialize)]
+pub(crate) struct GetChannelIdRequest {
+    pub(crate) temporary_channel_id: String,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct GetChannelIdResponse {
+    pub(crate) channel_id: String,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) enum HTLCStatus {
     Pending,
@@ -637,7 +647,7 @@ pub(crate) struct NodeInfoResponse {
 
 #[derive(Deserialize, Serialize)]
 pub(crate) struct OpenChannelRequest {
-    pub(crate) peer_pubkey_and_addr: String,
+    pub(crate) peer_pubkey_and_opt_addr: String,
     pub(crate) capacity_sat: u64,
     pub(crate) push_msat: u64,
     pub(crate) asset_amount: Option<u64>,
@@ -646,6 +656,7 @@ pub(crate) struct OpenChannelRequest {
     pub(crate) with_anchors: bool,
     pub(crate) fee_base_msat: Option<u32>,
     pub(crate) fee_proportional_millionths: Option<u32>,
+    pub(crate) temporary_channel_id: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -1149,8 +1160,19 @@ pub(crate) async fn connect_peer(
 
         let (peer_pubkey, peer_addr) = parse_peer_info(payload.peer_pubkey_and_addr.to_string())?;
 
-        connect_peer_if_necessary(peer_pubkey, peer_addr, unlocked_state.peer_manager.clone())
-            .await?;
+        if let Some(peer_addr) = peer_addr {
+            connect_peer_if_necessary(peer_pubkey, peer_addr, unlocked_state.peer_manager.clone())
+                .await?;
+            disk::persist_channel_peer(
+                &state.static_state.ldk_data_dir.join(CHANNEL_PEER_DATA),
+                &peer_pubkey,
+                &peer_addr,
+            )?;
+        } else {
+            return Err(APIError::InvalidPeerInfo(s!(
+                "incorrectly formatted peer info. Should be formatted as: `pubkey@host:port`"
+            )));
+        }
 
         Ok(Json(EmptyResponse {}))
     })
@@ -1248,6 +1270,11 @@ pub(crate) async fn disconnect_peer(
             }
         }
 
+        disk::delete_channel_peer(
+            &state.static_state.ldk_data_dir.join(CHANNEL_PEER_DATA),
+            payload.peer_pubkey,
+        )?;
+
         //check the pubkey matches a valid connected peer
         if unlocked_state
             .peer_manager
@@ -1290,6 +1317,21 @@ pub(crate) async fn get_asset_media(
     let bytes_hex = hex_str(&file_bytes);
 
     Ok(Json(GetAssetMediaResponse { bytes_hex }))
+}
+
+pub(crate) async fn get_channel_id(
+    State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<GetChannelIdRequest>, APIError>,
+) -> Result<Json<GetChannelIdResponse>, APIError> {
+    let tmp_chan_id = check_channel_id(&payload.temporary_channel_id)?;
+    let channel_ids = state.check_unlocked().await?.clone().unwrap().channel_ids();
+    let channel_id = if let Some(channel_id) = channel_ids.get(&tmp_chan_id) {
+        channel_id.0.as_hex().to_string()
+    } else {
+        return Err(APIError::UnknownTemporaryChannelId);
+    };
+
+    Ok(Json(GetChannelIdResponse { channel_id }))
 }
 
 pub(crate) async fn init(
@@ -2258,7 +2300,15 @@ pub(crate) async fn open_channel(
             return Err(APIError::OpenChannelInProgress);
         }
 
-        let (peer_pubkey, peer_addr) = parse_peer_info(payload.peer_pubkey_and_addr.to_string())?;
+        let temporary_channel_id = if let Some(tmp_chan_id_str) = payload.temporary_channel_id {
+            let tmp_chan_id = check_channel_id(&tmp_chan_id_str)?;
+            if unlocked_state.channel_ids().contains_key(&tmp_chan_id) {
+                return Err(APIError::TemporaryChannelIdAlreadyUsed);
+            }
+            Some(tmp_chan_id)
+        } else {
+            None
+        };
 
         let colored_info = match (payload.asset_id, payload.asset_amount) {
             (Some(_), Some(amt)) if amt < OPENCHANNEL_MIN_RGB_AMT => {
@@ -2298,8 +2348,28 @@ pub(crate) async fn open_channel(
             return Err(APIError::AnchorsRequired);
         }
 
-        connect_peer_if_necessary(peer_pubkey, peer_addr, unlocked_state.peer_manager.clone())
-            .await?;
+        let (peer_pubkey, mut peer_addr) =
+            parse_peer_info(payload.peer_pubkey_and_opt_addr.to_string())?;
+
+        let peer_data_path = state.static_state.ldk_data_dir.join(CHANNEL_PEER_DATA);
+        if peer_addr.is_none() {
+            let peer_info = disk::read_channel_peer_data(&peer_data_path)?;
+            for (pubkey, addr) in peer_info.into_iter() {
+                if pubkey == peer_pubkey {
+                    peer_addr = Some(addr);
+                    break;
+                }
+            }
+        }
+        if let Some(peer_addr) = peer_addr {
+            connect_peer_if_necessary(peer_pubkey, peer_addr, unlocked_state.peer_manager.clone())
+                .await?;
+            disk::persist_channel_peer(&peer_data_path, &peer_pubkey, &peer_addr)?;
+        } else {
+            return Err(APIError::InvalidPeerInfo(s!(
+                "cannot find the address for the provided pubkey"
+            )));
+        }
 
         let mut channel_config = ChannelConfig::default();
         if let Some(fee_base_msat) = payload.fee_base_msat {
@@ -2371,6 +2441,7 @@ pub(crate) async fn open_channel(
         }
 
         *unlocked_state.rgb_send_lock.lock().unwrap() = true;
+        tracing::debug!("RGB send lock set to true");
 
         let temporary_channel_id = unlocked_state
             .channel_manager
@@ -2379,18 +2450,19 @@ pub(crate) async fn open_channel(
                 payload.capacity_sat,
                 payload.push_msat,
                 0,
-                None,
+                temporary_channel_id,
                 Some(config),
                 consignment_endpoint,
             )
-            .map_err(|e| APIError::FailedOpenChannel(format!("{:?}", e)))?;
+            .map_err(|e| {
+                *unlocked_state.rgb_send_lock.lock().unwrap() = false;
+                tracing::debug!("RGB send lock set to false (open channel failure: {e:?})");
+                APIError::FailedOpenChannel(format!("{:?}", e))
+            })?;
         let temporary_channel_id = temporary_channel_id.0.as_hex().to_string();
         tracing::info!("EVENT: initiated channel with peer {}", peer_pubkey);
 
         if let Some((contract_id, asset_amount)) = &colored_info {
-            let peer_data_path = state.static_state.ldk_data_dir.join("channel_peer_data");
-            let _ = disk::persist_channel_peer(&peer_data_path, &payload.peer_pubkey_and_addr);
-
             let rgb_info = RgbInfo {
                 contract_id: *contract_id,
                 local_rgb_amount: *asset_amount,

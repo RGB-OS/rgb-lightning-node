@@ -4,6 +4,7 @@ use bitcoin::Network;
 use futures::Future;
 use lightning::ln::channelmanager::ChannelDetails;
 use lightning::ln::msgs::SocketAddress;
+use lightning::ln::ChannelId;
 use lightning::rgb_utils::{BITCOIN_NETWORK_FNAME, INDEXER_URL_FNAME};
 use lightning::routing::router::{
     Payee, PaymentParameters, Route, RouteHint, RouteParameters, Router as _,
@@ -30,7 +31,7 @@ use std::{
 use tokio::sync::{Mutex as TokioMutex, MutexGuard as TokioMutexGuard};
 use tokio_util::sync::CancellationToken;
 
-use crate::ldk::Router;
+use crate::ldk::{ChannelIdsMap, Router};
 use crate::rgb::{get_rgb_channel_info_optional, RgbLibWalletWrapper};
 use crate::routes::{DEFAULT_FINAL_CLTV_EXPIRY_DELTA, HTLC_MIN_MSAT};
 use crate::{
@@ -108,6 +109,7 @@ pub(crate) struct UnlockedAppState {
     pub(crate) router: Arc<Router>,
     pub(crate) output_sweeper: Arc<OutputSweeper>,
     pub(crate) rgb_send_lock: Arc<Mutex<bool>>,
+    pub(crate) channel_ids_map: Arc<Mutex<ChannelIdsMap>>,
 }
 
 impl UnlockedAppState {
@@ -125,6 +127,10 @@ impl UnlockedAppState {
 
     pub(crate) fn get_taker_swaps(&self) -> MutexGuard<SwapMap> {
         self.taker_swaps.lock().unwrap()
+    }
+
+    pub(crate) fn get_channel_ids_map(&self) -> MutexGuard<ChannelIdsMap> {
+        self.channel_ids_map.lock().unwrap()
     }
 }
 
@@ -178,6 +184,17 @@ pub(crate) fn check_password_validity(
     }
 }
 
+pub(crate) fn check_channel_id(channel_id_str: &str) -> Result<ChannelId, APIError> {
+    if let Some(channel_id_bytes) = hex_str_to_vec(channel_id_str) {
+        if channel_id_bytes.len() != 32 {
+            return Err(APIError::InvalidChannelID);
+        }
+        Ok(ChannelId::from_bytes(channel_id_bytes.try_into().unwrap()))
+    } else {
+        Err(APIError::InvalidChannelID)
+    }
+}
+
 pub(crate) fn get_mnemonic_path(storage_dir_path: &Path) -> PathBuf {
     storage_dir_path.join("mnemonic")
 }
@@ -203,7 +220,7 @@ pub(crate) fn encrypt_and_save_mnemonic(
 
 pub(crate) async fn connect_peer_if_necessary(
     pubkey: PublicKey,
-    peer_addr: SocketAddr,
+    address: SocketAddr,
     peer_manager: Arc<PeerManager>,
 ) -> Result<(), APIError> {
     for peer_details in peer_manager.list_peers() {
@@ -211,17 +228,17 @@ pub(crate) async fn connect_peer_if_necessary(
             return Ok(());
         }
     }
-    do_connect_peer(pubkey, peer_addr, peer_manager).await?;
+    do_connect_peer(pubkey, address, peer_manager).await?;
+    tracing::info!("connected to peer (pubkey: {pubkey}, addr: {address})");
     Ok(())
 }
 
 pub(crate) async fn do_connect_peer(
     pubkey: PublicKey,
-    peer_addr: SocketAddr,
+    address: SocketAddr,
     peer_manager: Arc<PeerManager>,
 ) -> Result<(), APIError> {
-    match lightning_net_tokio::connect_outbound(Arc::clone(&peer_manager), pubkey, peer_addr).await
-    {
+    match lightning_net_tokio::connect_outbound(Arc::clone(&peer_manager), pubkey, address).await {
         Some(connection_closed_future) => {
             let mut connection_closed_future = Box::pin(connection_closed_future);
             loop {
@@ -297,25 +314,21 @@ where
 
 pub(crate) fn parse_peer_info(
     peer_pubkey_and_ip_addr: String,
-) -> Result<(PublicKey, SocketAddr), APIError> {
+) -> Result<(PublicKey, Option<SocketAddr>), APIError> {
     let mut pubkey_and_addr = peer_pubkey_and_ip_addr.split('@');
     let pubkey = pubkey_and_addr.next();
-    let peer_addr_str = pubkey_and_addr.next();
-    if peer_addr_str.is_none() {
-        return Err(APIError::InvalidPeerInfo(s!(
-            "incorrectly formatted peer info. Should be formatted as: `pubkey@host:port`"
-        )));
-    }
 
-    let peer_addr = peer_addr_str
-        .unwrap()
-        .to_socket_addrs()
-        .map(|mut r| r.next());
-    if peer_addr.is_err() || peer_addr.as_ref().unwrap().is_none() {
-        return Err(APIError::InvalidPeerInfo(s!(
-            "couldn't parse pubkey@host:port into a socket address"
-        )));
-    }
+    let peer_addr = if let Some(peer_addr_str) = pubkey_and_addr.next() {
+        let peer_addr = peer_addr_str.to_socket_addrs().map(|mut r| r.next());
+        if peer_addr.is_err() || peer_addr.as_ref().unwrap().is_none() {
+            return Err(APIError::InvalidPeerInfo(s!(
+                "couldn't parse pubkey@host:port into a socket address"
+            )));
+        }
+        peer_addr.unwrap()
+    } else {
+        None
+    };
 
     let pubkey = hex_str_to_compressed_pubkey(pubkey.unwrap());
     if pubkey.is_none() {
@@ -324,7 +337,7 @@ pub(crate) fn parse_peer_info(
         )));
     }
 
-    Ok((pubkey.unwrap(), peer_addr.unwrap().unwrap()))
+    Ok((pubkey.unwrap(), peer_addr))
 }
 
 pub(crate) async fn start_daemon(args: &LdkUserInfo) -> Result<Arc<AppState>, AppError> {
