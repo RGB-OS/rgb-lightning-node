@@ -9,7 +9,7 @@ FROM debian:bookworm-slim
 COPY --from=builder ./target/debug/rgb-lightning-node /usr/bin/rgb-lightning-node
 
 RUN apt-get update && apt install -y --no-install-recommends \
-    ca-certificates openssl wget s3fs \
+    ca-certificates openssl wget s3fs bash \
     && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 COPY start.sh /
