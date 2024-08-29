@@ -41,6 +41,12 @@ while [ "$(aws ec2 describe-volumes --volume-ids $VOLUME_ID --query 'Volumes[0].
     sleep 1
 done
 
+# Wait for the device to be available on the instance
+while [ ! -e $AVAILABLE_DEVICE ]; do
+    echo "Waiting for device $AVAILABLE_DEVICE to be available..."
+    sleep 1
+done
+
 # Mount the volume
 if ! mount | grep /mnt/ebs-${USER_ID}-${NODE_ID}; then
     echo "Mounting volume $VOLUME_ID to /mnt/ebs-${USER_ID}-${NODE_ID}"
