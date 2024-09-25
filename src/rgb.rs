@@ -20,7 +20,7 @@ use rgb_lib::{
         ReceiveData, Recipient, RefreshResult, SendResult, Transaction as RgbLibTransaction,
         Transfer, Unspent, WalletData,
     },
-    AssetSchema, Contract, ContractId, Error as RgbLibError, Fascia, RgbTransfer,
+    AssetSchema, Contract, ContractId, Error as RgbLibError, RgbTransfer, UpdateRes,
     Wallet as RgbLibWallet,
 };
 use std::collections::HashMap;
@@ -68,6 +68,15 @@ impl UnlockedAppState {
         self.rgb_wallet_wrapper.get_asset_balance(contract_id)
     }
 
+    pub(crate) fn rgb_get_asset_transfer_dir<P: AsRef<Path>>(
+        &self,
+        transfers_dir: P,
+        asset_id: &str,
+    ) -> PathBuf {
+        self.rgb_wallet_wrapper
+            .get_asset_transfer_dir(transfers_dir, asset_id)
+    }
+
     pub(crate) fn rgb_get_btc_balance(&self) -> Result<BtcBalance, RgbLibError> {
         self.rgb_wallet_wrapper.get_btc_balance()
     }
@@ -76,12 +85,21 @@ impl UnlockedAppState {
         self.rgb_wallet_wrapper.get_media_dir()
     }
 
-    pub(crate) fn rgb_get_wallet_data(&self) -> WalletData {
-        self.rgb_wallet_wrapper.get_wallet_data()
+    pub(crate) fn rgb_get_send_consignment_path<P: AsRef<Path>>(
+        &self,
+        asset_transfer_dir: P,
+        recipient_id: &str,
+    ) -> PathBuf {
+        self.rgb_wallet_wrapper
+            .get_send_consignment_path(asset_transfer_dir, recipient_id)
     }
 
-    pub(crate) fn rgb_get_wallet_dir(&self) -> PathBuf {
-        self.rgb_wallet_wrapper.get_wallet_dir()
+    pub(crate) fn rgb_get_transfers_dir(&self) -> PathBuf {
+        self.rgb_wallet_wrapper.get_transfers_dir()
+    }
+
+    pub(crate) fn rgb_get_wallet_data(&self) -> WalletData {
+        self.rgb_wallet_wrapper.get_wallet_data()
     }
 
     pub(crate) fn rgb_issue_asset_cfa(
@@ -272,10 +290,6 @@ impl RgbLibWalletWrapper {
             .color_psbt_and_consume(psbt_to_color, coloring_info)
     }
 
-    pub(crate) fn consume_fascia(&self, fascia: Fascia) -> Result<(), RgbLibError> {
-        self.get_rgb_wallet().consume_fascia(fascia)
-    }
-
     pub(crate) fn create_utxos(
         &self,
         up_to: bool,
@@ -304,6 +318,15 @@ impl RgbLibWalletWrapper {
             .get_asset_balance(contract_id.to_string())
     }
 
+    pub(crate) fn get_asset_transfer_dir<P: AsRef<Path>>(
+        &self,
+        transfers_dir: P,
+        asset_id: &str,
+    ) -> PathBuf {
+        self.get_rgb_wallet()
+            .get_asset_transfer_dir(transfers_dir, asset_id)
+    }
+
     pub(crate) fn get_btc_balance(&self) -> Result<BtcBalance, RgbLibError> {
         self.get_rgb_wallet().get_btc_balance(self.online.clone())
     }
@@ -312,12 +335,25 @@ impl RgbLibWalletWrapper {
         self.get_rgb_wallet().get_media_dir()
     }
 
-    pub(crate) fn get_wallet_data(&self) -> WalletData {
-        self.get_rgb_wallet().get_wallet_data()
+    pub(crate) fn get_send_consignment_path<P: AsRef<Path>>(
+        &self,
+        asset_transfer_dir: P,
+        recipient_id: &str,
+    ) -> PathBuf {
+        self.get_rgb_wallet()
+            .get_send_consignment_path(asset_transfer_dir, recipient_id)
     }
 
-    pub(crate) fn get_wallet_dir(&self) -> PathBuf {
-        self.get_rgb_wallet().get_wallet_dir()
+    pub(crate) fn get_transfers_dir(&self) -> PathBuf {
+        self.get_rgb_wallet().get_transfers_dir()
+    }
+
+    pub(crate) fn get_tx_height(&self, txid: String) -> Result<Option<u32>, RgbLibError> {
+        self.get_rgb_wallet().get_tx_height(txid)
+    }
+
+    pub(crate) fn get_wallet_data(&self) -> WalletData {
+        self.get_rgb_wallet().get_wallet_data()
     }
 
     pub(crate) fn issue_asset_cfa(
@@ -486,6 +522,10 @@ impl RgbLibWalletWrapper {
 
     pub(crate) fn sign_psbt(&self, unsigned_psbt: String) -> Result<String, RgbLibError> {
         self.get_rgb_wallet().sign_psbt(unsigned_psbt, None)
+    }
+
+    pub(crate) fn update_witnesses(&self, after_height: u32) -> Result<UpdateRes, RgbLibError> {
+        self.get_rgb_wallet().update_witnesses(after_height)
     }
 
     pub(crate) fn witness_receive(

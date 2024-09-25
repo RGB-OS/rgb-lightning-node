@@ -61,7 +61,7 @@ impl Default for LdkUserInfo {
             storage_dir_path: PathBuf::from("tmp/test_name/nodeN"),
             daemon_listening_port: 3001,
             ldk_peer_listening_port: 9735,
-            max_media_upload_size_mb: 1,
+            max_media_upload_size_mb: 3,
         }
     }
 }
@@ -371,7 +371,12 @@ async fn create_utxos(node_address: SocketAddr, up_to: bool, num: Option<u8>, si
     );
 
     let num = if num.is_some() { num } else { Some(10) };
-    let payload = CreateUtxosRequest { up_to, num, size };
+    let payload = CreateUtxosRequest {
+        up_to,
+        num,
+        size,
+        fee_rate: FEE_RATE,
+    };
     let res = reqwest::Client::new()
         .post(format!("http://{}/createutxos", node_address))
         .json(&payload)
@@ -1149,6 +1154,7 @@ async fn send_asset(node_address: SocketAddr, asset_id: &str, amount: u64, recip
         amount,
         recipient_id,
         donation: true,
+        fee_rate: FEE_RATE,
         min_confirmations: 1,
         transport_endpoints: vec![PROXY_ENDPOINT_REGTEST.to_string()],
     };

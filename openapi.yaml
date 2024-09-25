@@ -1072,6 +1072,9 @@ components:
         size:
           type: integer
           example: 32500
+        fee_rate:
+          type: number
+          example: 4.2
     DecodeLNInvoiceRequest:
       type: object
       properties:
@@ -1632,6 +1635,9 @@ components:
         donation:
           type: boolean
           example: false
+        fee_rate:
+          type: number
+          example: 4.2
         min_confirmations:
           type: integer
           example: 1
@@ -1727,6 +1733,18 @@ components:
           example: 7c2c95b9c2aa0a7d140495b664de7973b76561de833f0dd84def3efa08941664
         status:
           $ref: '#/components/schemas/SwapStatus'
+        requested_at:
+          type: integer
+          example: 1691160765
+        initiated_at:
+          type: integer
+          example: 1691168512
+        expires_at:
+          type: integer
+          example: 1691172703
+        completed_at:
+          type: integer
+          example: 1691171075
     SwapStatus:
       type: string
       enum:

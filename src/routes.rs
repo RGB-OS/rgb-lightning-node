@@ -54,6 +54,7 @@ use rgb_lib::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
+    net::ToSocketAddrs,
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
@@ -358,6 +359,7 @@ pub(crate) struct CreateUtxosRequest {
     pub(crate) up_to: bool,
     pub(crate) num: Option<u8>,
     pub(crate) size: Option<u32>,
+    pub(crate) fee_rate: f32,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -720,6 +722,7 @@ pub(crate) struct SendAssetRequest {
     pub(crate) amount: u64,
     pub(crate) recipient_id: String,
     pub(crate) donation: bool,
+    pub(crate) fee_rate: f32,
     pub(crate) min_confirmations: u8,
     pub(crate) transport_endpoints: Vec<String>,
 }
@@ -780,6 +783,10 @@ pub(crate) struct Swap {
     pub(crate) to_asset: Option<String>,
     pub(crate) payment_hash: String,
     pub(crate) status: SwapStatus,
+    pub(crate) requested_at: u64,
+    pub(crate) initiated_at: Option<u64>,
+    pub(crate) expires_at: u64,
+    pub(crate) completed_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -985,6 +992,7 @@ impl From<RgbLibError> for APIError {
             RgbLibError::InvalidTransportEndpoints { details } => {
                 APIError::InvalidTransportEndpoints(details)
             }
+            RgbLibError::MinFeeNotMet { txid } => APIError::MinFeeNotMet(txid),
             RgbLibError::RecipientIDAlreadyUsed => APIError::RecipientIDAlreadyUsed,
             RgbLibError::OutputBelowDustLimit => APIError::OutputBelowDustLimit,
             _ => {
@@ -1194,7 +1202,7 @@ pub(crate) async fn create_utxos(
             payload.up_to,
             payload.num.unwrap_or(UTXO_NUM),
             payload.size.unwrap_or(UTXO_SIZE_SAT),
-            FEE_RATE,
+            payload.fee_rate,
         )?;
         tracing::debug!("UTXO creation complete");
 
@@ -1764,6 +1772,10 @@ pub(crate) async fn list_swaps(
             from_asset: swap_data.swap_info.from_asset.map(|c| c.to_string()),
             to_asset: swap_data.swap_info.to_asset.map(|c| c.to_string()),
             status,
+            requested_at: swap_data.requested_at,
+            initiated_at: swap_data.initiated_at,
+            expires_at: swap_data.swap_info.expiry,
+            completed_at: swap_data.completed_at,
         }
     };
 
@@ -2156,7 +2168,7 @@ pub(crate) async fn maker_execute(
             );
         }
 
-        unlocked_state.update_maker_swap_to_pending(&swapstring.payment_hash);
+        unlocked_state.update_maker_swap_status(&swapstring.payment_hash, SwapStatus::Pending);
 
         let (_status, err) = match unlocked_state.channel_manager.send_spontaneous_payment(
             &route,
@@ -2228,7 +2240,7 @@ pub(crate) async fn maker_init(
             qty_to,
             expiry,
         };
-        let swap_data = SwapData::from_swap_info(&swap_info, SwapStatus::Waiting, None);
+        let swap_data = SwapData::create_from_swap_info(&swap_info);
 
         // Check that we have enough assets to send
         if let Some(to_asset) = to_asset {
@@ -2350,6 +2362,16 @@ pub(crate) async fn open_channel(
             parse_peer_info(payload.peer_pubkey_and_opt_addr.to_string())?;
 
         let peer_data_path = state.static_state.ldk_data_dir.join(CHANNEL_PEER_DATA);
+        if peer_addr.is_none() {
+            if let Some(peer) = unlocked_state.peer_manager.peer_by_node_id(&peer_pubkey) {
+                if let Some(socket_address) = peer.socket_address {
+                    if let Ok(mut socket_addrs) = socket_address.to_socket_addrs() {
+                        // assuming there's only one IP address
+                        peer_addr = socket_addrs.next();
+                    }
+                }
+            }
+        }
         if peer_addr.is_none() {
             let peer_info = disk::read_channel_peer_data(&peer_data_path)?;
             for (pubkey, addr) in peer_info.into_iter() {
@@ -2628,7 +2650,7 @@ pub(crate) async fn send_asset(
             unlocked_state.rgb_send(
                 recipient_map,
                 payload.donation,
-                FEE_RATE,
+                payload.fee_rate,
                 payload.min_confirmations,
             )
         })
@@ -2942,7 +2964,7 @@ pub(crate) async fn taker(
             }
         }
 
-        let swap_data = SwapData::from_swap_info(&swapstring.swap_info, SwapStatus::Waiting, None);
+        let swap_data = SwapData::create_from_swap_info(&swapstring.swap_info);
         unlocked_state.add_taker_swap(swapstring.payment_hash, swap_data);
 
         Ok(Json(EmptyResponse {}))
