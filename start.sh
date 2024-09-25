@@ -9,7 +9,7 @@ INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id)
 
 # Find an available device name
 AVAILABLE_DEVICE=""
-for device in {f..z}; do
+for device in {f..p}; do
     if ! lsblk | grep -q "/dev/xvd$device"; then
         AVAILABLE_DEVICE="/dev/xvd$device"
         break
