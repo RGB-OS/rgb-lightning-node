@@ -110,7 +110,7 @@ if ! mount | grep /mnt/ebs-${USER_ID}-${NODE_ID}; then
 
     echo "Mounting volume $VOLUME_ID to /mnt/ebs-${USER_ID}-${NODE_ID}"
     mkdir -p /mnt/ebs-${USER_ID}-${NODE_ID}
-    mount -o nouuid $NVME_DEVICE /mnt/ebs-${USER_ID}-${NODE_ID}
+    mount $NVME_DEVICE /mnt/ebs-${USER_ID}-${NODE_ID}
 fi
 
 shift 4
