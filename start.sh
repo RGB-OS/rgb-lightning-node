@@ -10,8 +10,10 @@ INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id)
 # Find an available device name
 AVAILABLE_DEVICE=""
 for device in {f..p}; do
-    if ! lsblk | grep -q "/dev/xvd$device"; then
-        AVAILABLE_DEVICE="/dev/xvd$device"
+    # Check with both lsblk and AWS describe-instances for the device
+    if ! lsblk | grep -q "$DEVICE_NAME" && \
+       ! aws ec2 describe-instances --instance-id $INSTANCE_ID --query 'Reservations[].Instances[].BlockDeviceMappings[].DeviceName' --output text | grep -q "$DEVICE_NAME"; then
+        AVAILABLE_DEVICE="$DEVICE_NAME"
         break
     fi
 done
