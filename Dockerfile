@@ -1,6 +1,8 @@
 FROM rust:1.77.0-bookworm as builder
 
-COPY . .
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+COPY rust-lightning ./rust-lightning
 
 RUN cargo build
 
