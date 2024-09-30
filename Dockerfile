@@ -11,7 +11,7 @@ FROM debian:bookworm-slim
 COPY --from=builder ./target/debug/rgb-lightning-node /usr/bin/rgb-lightning-node
 
 RUN apt-get update && apt install -y --no-install-recommends \
-    ca-certificates openssl wget s3fs bash unzip curl \
+    ca-certificates openssl wget s3fs bash unzip curl nvme-cli \
     && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Install AWS CLI v2
