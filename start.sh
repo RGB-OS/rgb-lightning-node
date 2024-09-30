@@ -51,7 +51,7 @@ done
 if ! mount | grep /mnt/ebs-${USER_ID}-${NODE_ID}; then
     echo "Mounting volume $VOLUME_ID to /mnt/ebs-${USER_ID}-${NODE_ID}"
     mkdir -p /mnt/ebs-${USER_ID}-${NODE_ID}
-    mount $AVAILABLE_DEVICE /mnt/ebs-${USER_ID}-${NODE_ID}
+    mount -t xfs -o nouuid $AVAILABLE_DEVICE /mnt/ebs-${USER_ID}-${NODE_ID}
 fi
 
 shift 4
