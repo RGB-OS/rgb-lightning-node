@@ -28,23 +28,32 @@ AVAILABLE_NVME_DEVICE="/dev/nvme${NEXT_NVME_DEVICE_NUM}n1"
 
 echo "Next available NVMe device: $AVAILABLE_NVME_DEVICE"
 
-# Step 3: Find the next available /dev/sdX device name based on AWS conventions
+AVAILABLE_DEVICE=""
+# Get all attached devices in one line, and split into individual device names
+ATTACHED_DEVICES=$(aws ec2 describe-instances --instance-id $INSTANCE_ID --query 'Reservations[].Instances[].BlockDeviceMappings[].DeviceName' --output text | tr '\t' '\n')
 
-# AWS uses /dev/sdf to /dev/sdz, so we simulate these and ensure they are used sequentially
-DEVICE_LETTERS=(f g h i j k l m n o p)
-AVAILABLE_SDX_DEVICE=""
+for device in {f..p}; do
+    DEVICE_NAME="/dev/xvd$device"
+    
+    # Log the device check
+    echo "Checking $DEVICE_NAME..."
 
-# Simulate the mapping for the /dev/sdX devices based on the NVMe devices
-# No need to check if /dev/sdX exists locally, just ensure it follows the sequence of usage.
-for ((i=0; i<${#DEVICE_LETTERS[@]}; i++)); do
-    CURRENT_LETTER=${DEVICE_LETTERS[$i]}
-
-    # If the corresponding NVMe device is in use, move to the next /dev/sdX name
-    if [ $((i+1)) -gt $LAST_NVME_DEVICE_NUM ]; then
-        AVAILABLE_SDX_DEVICE="/dev/sd${CURRENT_LETTER}"
+    # Check if the device name is in use either locally or in the list from AWS
+    if ! lsblk | grep -q "$DEVICE_NAME" && ! echo "$ATTACHED_DEVICES" | grep -q "$DEVICE_NAME"; then
+        AVAILABLE_DEVICE="$DEVICE_NAME"
+        echo "Available device: $AVAILABLE_DEVICE"
         break
+    else
+        echo "$DEVICE_NAME is in use or unavailable."
     fi
 done
+
+if [ -z "$AVAILABLE_DEVICE" ]; then
+    echo "Error: No available device name found."
+    exit 1
+fi
+
+echo "Next available traditional device: $AVAILABLE_DEVICE"
 
 # Detach the volume if it's already attached
 ATTACHMENT_STATE=$(aws ec2 describe-volumes --volume-ids $VOLUME_ID --query 'Volumes[0].Attachments[0].State' --output text)
@@ -57,29 +66,29 @@ if [ "$ATTACHMENT_STATE" == "attached" ]; then
             sleep 1
         done
 	# Attach the volume to the current instance
-        echo "Attaching volume $VOLUME_ID to instance $INSTANCE_ID as $AVAILABLE_SDX_DEVICE"
-        aws ec2 attach-volume --volume-id $VOLUME_ID --instance-id $INSTANCE_ID --device $AVAILABLE_SDX_DEVICE
+        echo "Attaching volume $VOLUME_ID to instance $INSTANCE_ID as $AVAILABLE_DEVICE"
+        aws ec2 attach-volume --volume-id $VOLUME_ID --instance-id $INSTANCE_ID --device $AVAILABLE_DEVICE
         while [ "$(aws ec2 describe-volumes --volume-ids $VOLUME_ID --query 'Volumes[0].Attachments[0].State' --output text)" != "attached" ]; do
             sleep 1
         done
     fi
 else
     # Attach the volume to the current instance
-    echo "Attaching volume $VOLUME_ID to instance $INSTANCE_ID as $AVAILABLE_SDX_DEVICE"
-    aws ec2 attach-volume --volume-id $VOLUME_ID --instance-id $INSTANCE_ID --device $AVAILABLE_SDX_DEVICE
+    echo "Attaching volume $VOLUME_ID to instance $INSTANCE_ID as $AVAILABLE_DEVICE"
+    aws ec2 attach-volume --volume-id $VOLUME_ID --instance-id $INSTANCE_ID --device $AVAILABLE_DEVICE
     while [ "$(aws ec2 describe-volumes --volume-ids $VOLUME_ID --query 'Volumes[0].Attachments[0].State' --output text)" != "attached" ]; do
         sleep 1
     done
 fi
 
-# Wait for the NVMe device to be available
+## Wait for the NVMe device to be available
 NVME_DEVICE=""
 while [ -z "$NVME_DEVICE" ]; do
-    for device in /dev/nvme*n1; do
-	if [ "$device" == "/dev/nvme0n1" ]; then
-            continue  # Skip this iteration
-        fi
+    # Use lsblk to list all NVMe devices, filtering out the root device (nvme0n1)
+    for device in $(lsblk -o NAME,TYPE | grep 'nvme' | grep -v 'nvme0n1' | awk '{print "/dev/"$1}'); do
+        # Get the serial number for the NVMe device
         SN=$(nvme id-ctrl -v $device | grep 'sn' | awk '{print $3}')  # Extract the serial number
+        echo $SN
         if [[ $SN == vol* ]]; then
             # Convert the SN to EBS volume ID format by inserting a hyphen
             VOLUME_NVME_ID="${SN:0:3}-${SN:3}"
@@ -112,6 +121,8 @@ if ! mount | grep /mnt/ebs-${USER_ID}-${NODE_ID}; then
     mkdir -p /mnt/ebs-${USER_ID}-${NODE_ID}
     mount $NVME_DEVICE /mnt/ebs-${USER_ID}-${NODE_ID}
 fi
+
+echo 'Volume mounted!'
 
 shift 4
 # Now, pass the remaining arguments to /usr/bin/rgb-lightning-node
