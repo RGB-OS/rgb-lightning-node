@@ -1,8 +1,8 @@
 use amplify::s;
-use bitcoin::Network;
 use electrum_client::ElectrumApi;
 use lightning_invoice::Bolt11Invoice;
 use once_cell::sync::Lazy;
+use rgb_lib::BitcoinNetwork;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -17,19 +17,20 @@ use crate::error::APIErrorResponse;
 use crate::ldk::FEE_RATE;
 use crate::routes::{
     AddressResponse, AssetBalanceRequest, AssetBalanceResponse, AssetCFA, AssetNIA, AssetUDA,
-    BackupRequest, BtcBalanceResponse, ChangePasswordRequest, Channel, CloseChannelRequest,
-    ConnectPeerRequest, CreateUtxosRequest, DecodeLNInvoiceRequest, DecodeLNInvoiceResponse,
-    DecodeRGBInvoiceRequest, DecodeRGBInvoiceResponse, DisconnectPeerRequest, EmptyResponse,
-    GetAssetMediaRequest, GetAssetMediaResponse, GetChannelIdRequest, GetChannelIdResponse,
-    HTLCStatus, InitRequest, InitResponse, InvoiceStatus, InvoiceStatusRequest,
-    InvoiceStatusResponse, IssueAssetCFARequest, IssueAssetCFAResponse, IssueAssetNIARequest,
-    IssueAssetNIAResponse, IssueAssetUDARequest, IssueAssetUDAResponse, KeysendRequest,
-    KeysendResponse, LNInvoiceRequest, LNInvoiceResponse, ListAssetsRequest, ListAssetsResponse,
-    ListChannelsResponse, ListPaymentsResponse, ListPeersResponse, ListSwapsResponse,
-    ListTransactionsResponse, ListTransfersRequest, ListTransfersResponse, ListUnspentsResponse,
+    BackupRequest, BtcBalanceRequest, BtcBalanceResponse, ChangePasswordRequest, Channel,
+    CloseChannelRequest, ConnectPeerRequest, CreateUtxosRequest, DecodeLNInvoiceRequest,
+    DecodeLNInvoiceResponse, DecodeRGBInvoiceRequest, DecodeRGBInvoiceResponse,
+    DisconnectPeerRequest, EmptyResponse, GetAssetMediaRequest, GetAssetMediaResponse,
+    GetChannelIdRequest, GetChannelIdResponse, HTLCStatus, InitRequest, InitResponse,
+    InvoiceStatus, InvoiceStatusRequest, InvoiceStatusResponse, IssueAssetCFARequest,
+    IssueAssetCFAResponse, IssueAssetNIARequest, IssueAssetNIAResponse, IssueAssetUDARequest,
+    IssueAssetUDAResponse, KeysendRequest, KeysendResponse, LNInvoiceRequest, LNInvoiceResponse,
+    ListAssetsRequest, ListAssetsResponse, ListChannelsResponse, ListPaymentsResponse,
+    ListPeersResponse, ListSwapsResponse, ListTransactionsRequest, ListTransactionsResponse,
+    ListTransfersRequest, ListTransfersResponse, ListUnspentsRequest, ListUnspentsResponse,
     MakerExecuteRequest, MakerInitRequest, MakerInitResponse, NetworkInfoResponse,
     NodeInfoResponse, OpenChannelRequest, OpenChannelResponse, Payment, Peer,
-    PostAssetMediaResponse, RestoreRequest, RgbInvoiceRequest, RgbInvoiceResponse,
+    PostAssetMediaResponse, RefreshRequest, RestoreRequest, RgbInvoiceRequest, RgbInvoiceResponse,
     SendAssetRequest, SendAssetResponse, SendBtcRequest, SendBtcResponse, SendPaymentRequest,
     SendPaymentResponse, SwapStatus, TakerRequest, Transaction, Transfer, UnlockRequest, Unspent,
 };
@@ -51,13 +52,9 @@ static MINER: Lazy<RwLock<Miner>> = Lazy::new(|| RwLock::new(Miner { no_mine_cou
 impl Default for LdkUserInfo {
     fn default() -> Self {
         Self {
-            bitcoind_rpc_username: s!("user"),
-            bitcoind_rpc_password: s!("password"),
-            bitcoind_rpc_host: s!("localhost"),
-            bitcoind_rpc_port: 18443,
             ldk_announced_listen_addr: vec![],
             ldk_announced_node_name: [0; 32],
-            network: Network::Regtest,
+            network: BitcoinNetwork::Regtest,
             storage_dir_path: PathBuf::from("tmp/test_name/nodeN"),
             daemon_listening_port: 3001,
             ldk_peer_listening_port: 9735,
@@ -248,8 +245,10 @@ async fn backup(node_address: SocketAddr, backup_path: &str, password: &str) {
 
 async fn btc_balance(node_address: SocketAddr) -> BtcBalanceResponse {
     println!("getting BTC balance for node {node_address}");
+    let payload = BtcBalanceRequest { skip_sync: false };
     let res = reqwest::Client::new()
-        .get(format!("http://{}/btcbalance", node_address))
+        .post(format!("http://{}/btcbalance", node_address))
+        .json(&payload)
         .send()
         .await
         .unwrap();
@@ -376,6 +375,7 @@ async fn create_utxos(node_address: SocketAddr, up_to: bool, num: Option<u8>, si
         num,
         size,
         fee_rate: FEE_RATE,
+        skip_sync: false,
     };
     let res = reqwest::Client::new()
         .post(format!("http://{}/createutxos", node_address))
@@ -767,8 +767,10 @@ async fn list_swaps(node_address: SocketAddr) -> ListSwapsResponse {
 
 async fn list_transactions(node_address: SocketAddr) -> Vec<Transaction> {
     println!("listing transactions for node {node_address}");
+    let payload = ListTransactionsRequest { skip_sync: false };
     let res = reqwest::Client::new()
-        .get(format!("http://{}/listtransactions", node_address))
+        .post(format!("http://{}/listtransactions", node_address))
+        .json(&payload)
         .send()
         .await
         .unwrap();
@@ -801,8 +803,10 @@ async fn list_transfers(node_address: SocketAddr, asset_id: &str) -> Vec<Transfe
 
 async fn list_unspents(node_address: SocketAddr) -> Vec<Unspent> {
     println!("listing unspents for node {node_address}");
+    let payload = ListUnspentsRequest { skip_sync: false };
     let res = reqwest::Client::new()
-        .get(format!("http://{}/listunspents", node_address))
+        .post(format!("http://{}/listunspents", node_address))
+        .json(&payload)
         .send()
         .await
         .unwrap();
@@ -1087,8 +1091,10 @@ async fn post_asset_media(node_address: SocketAddr, file_path: &str) -> String {
 
 async fn refresh_transfers(node_address: SocketAddr) {
     println!("refreshing transfers for node {node_address}");
+    let payload = RefreshRequest { skip_sync: false };
     let res = reqwest::Client::new()
         .post(format!("http://{}/refreshtransfers", node_address))
+        .json(&payload)
         .send()
         .await
         .unwrap();
@@ -1177,6 +1183,7 @@ async fn send_btc(node_address: SocketAddr, amount: u64, address: &str) -> Strin
         amount,
         address: address.to_string(),
         fee_rate: FEE_RATE,
+        skip_sync: false,
     };
     let res = reqwest::Client::new()
         .post(format!("http://{}/sendbtc", node_address))
@@ -1306,6 +1313,12 @@ async fn unlock(node_address: SocketAddr, password: &str) {
     println!("unlocking node {node_address}");
     let payload = UnlockRequest {
         password: password.to_string(),
+        bitcoind_rpc_username: s!("user"),
+        bitcoind_rpc_password: s!("password"),
+        bitcoind_rpc_host: s!("localhost"),
+        bitcoind_rpc_port: 18443,
+        indexer_url: None,
+        proxy_endpoint: None,
     };
     let res = reqwest::Client::new()
         .post(format!("http://{}/unlock", node_address))

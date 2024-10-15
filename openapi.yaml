@@ -80,11 +80,16 @@ paths:
               schema:
                 $ref: '#/components/schemas/EmptyResponse'
   /btcbalance:
-    get:
+    post:
       tags:
         - On-chain
       summary: Get the BTC balance
       description: Get the node's bitcoin balance for the vanilla and colored wallets
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BtcBalanceRequest'
       responses:
         '200':
           description: Successful operation
@@ -110,6 +115,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EmptyResponse'
+  /checkindexerurl:
+    post:
+      tags:
+        - Other
+      summary: Check an indexer URL
+      description: Check the given indexer URL is valid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckIndexerUrlRequest'
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckIndexerUrlResponse'
   /closechannel:
     post:
       tags:
@@ -218,6 +241,43 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EmptyResponse'
+  /estimatefee:
+    post:
+      tags:
+        - On-chain
+      summary: Get fee estimation
+      description: Get on-chain fee estimation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EstimateFeeRequest'
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EstimateFeeResponse'
+  /failtransfers:
+    post:
+      tags:
+        - RGB
+      summary: Fail RGB transfers
+      description: Set the status for eligible RGB transfers to
+        `TransferStatus::Failed`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FailTransfersRequest'
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FailTransfersResponse'
   /getassetmedia:
     post:
       tags:
@@ -433,11 +493,16 @@ paths:
               schema:
                 $ref: '#/components/schemas/ListSwapsResponse'
   /listtransactions:
-    get:
+    post:
       tags:
         - On-chain
       summary: List transactions
       description: List the node's on-chain transactions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListTransactionsRequest'
       responses:
         '200':
           description: Successful operation
@@ -464,11 +529,16 @@ paths:
               schema:
                 $ref: '#/components/schemas/ListTransfersResponse'
   /listunspents:
-    get:
+    post:
       tags:
         - On-chain
       summary: List unspents
       description: List the unspent outputs of the internal BDK wallet
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListUnspentsRequest'
       responses:
         '200':
           description: Successful operation
@@ -612,6 +682,11 @@ paths:
         - RGB
       summary: Refresh transfers
       description: Refresh RGB pending transfers
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
       responses:
         '200':
           description: Successful operation
@@ -733,6 +808,19 @@ paths:
         - Other
       summary: Shutdown the node
       description: Gracefully shutdown the node
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyResponse'
+  /sync:
+    post:
+      tags:
+        - RGB
+      summary: Sync the RGB wallet
+      description: Sync the RGB wallet
       responses:
         '200':
           description: Successful operation
@@ -972,6 +1060,12 @@ components:
         spendable:
           type: integer
           example: 777000
+    BtcBalanceRequest:
+      type: object
+      properties:
+        skip_sync:
+          type: boolean
+          example: false
     BtcBalanceResponse:
       type: object
       properties:
@@ -1042,6 +1136,17 @@ components:
         asset_remote_amount:
           type: integer
           example: 0
+    CheckIndexerUrlRequest:
+      type: object
+      properties:
+        indexer_url:
+          type: string
+          example: 127.0.0.1:50001
+    CheckIndexerUrlResponse:
+      type: object
+      properties:
+        indexer_protocol:
+          $ref: '#/components/schemas/IndexerProtocol'
     CloseChannelRequest:
       type: object
       properties:
@@ -1075,6 +1180,9 @@ components:
         fee_rate:
           type: number
           example: 4.2
+        skip_sync:
+          type: boolean
+          example: false
     DecodeLNInvoiceRequest:
       type: object
       properties:
@@ -1148,6 +1256,36 @@ components:
           example: 03b79a4bc1ec365524b4fab9a39eb133753646babb5a1da5c4bc94c53110b7795d
     EmptyResponse:
       type: object
+    EstimateFeeRequest:
+      type: object
+      properties:
+        blocks:
+          type: integer
+          example: 7
+    EstimateFeeResponse:
+      type: object
+      properties:
+        fee_rate:
+          type: number
+          example: 9.3
+    FailTransfersRequest:
+      type: object
+      properties:
+        batch_transfer_idx:
+          type: integer
+          example: null
+        no_asset_only:
+          type: boolean
+          example: false
+        skip_sync:
+          type: boolean
+          example: false
+    FailTransfersResponse:
+      type: object
+      properties:
+        transfers_changed:
+          type: boolean
+          example: true
     GetAssetMediaRequest:
       type: object
       properties:
@@ -1178,6 +1316,11 @@ components:
         - Pending
         - Succeeded
         - Failed
+    IndexerProtocol:
+      type: string
+      enum:
+        - Electrum
+        - Esplora
     InitRequest:
       type: object
       properties:
@@ -1215,7 +1358,7 @@ components:
           type: array
           items:
             type: integer
-            example: [ 1000, 600 ]
+          example: [ 1000, 600 ]
         name:
           type: string
           example: Tether
@@ -1240,7 +1383,7 @@ components:
           type: array
           items:
             type: integer
-            example: [ 1000, 600 ]
+          example: [ 1000, 600 ]
         ticker:
           type: string
           example: USDT
@@ -1277,7 +1420,7 @@ components:
           type: array
           items:
             type: string
-            example: [ 5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03, d7516e3a27cdf35aa9dcb323b5f556344ef7f57570be30b88de2bfd4ba339b1a ]
+          example: [ 5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03, d7516e3a27cdf35aa9dcb323b5f556344ef7f57570be30b88de2bfd4ba339b1a ]
     IssueAssetUDAResponse:
       type: object
       properties:
@@ -1364,6 +1507,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Swap'
+    ListTransactionsRequest:
+      type: object
+      properties:
+        skip_sync:
+          type: boolean
+          example: false
     ListTransactionsResponse:
       type: object
       properties:
@@ -1384,6 +1533,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Transfer'
+    ListUnspentsRequest:
+      type: object
+      properties:
+        skip_sync:
+          type: boolean
+          example: false
     ListUnspentsResponse:
       type: object
       properties:
@@ -1587,6 +1742,12 @@ components:
         digest:
           type: string
           example: 5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03
+    RefreshRequest:
+      type: object
+      properties:
+        skip_sync:
+          type: boolean
+          example: false
     RestoreRequest:
       type: object
       properties:
@@ -1676,6 +1837,9 @@ components:
         fee_rate:
           type: number
           example: 4.2
+        skip_sync:
+          type: boolean
+          example: false
     SendBtcResponse:
       type: object
       properties:
@@ -1901,6 +2065,24 @@ components:
         password:
           type: string
           example: nodepassword
+        bitcoind_rpc_username:
+          type: string
+          example: user
+        bitcoind_rpc_password:
+          type: string
+          example: password
+        bitcoind_rpc_host:
+          type: string
+          example: localhost
+        bitcoind_rpc_port:
+          type: integer
+          example: 18443
+        indexer_url:
+          type: string
+          example: 127.0.0.1:50001
+        proxy_endpoint:
+          type: string
+          example: rpc://127.0.0.1:3000/json-rpc
     Unspent:
       type: object
       properties:

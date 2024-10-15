@@ -70,16 +70,16 @@ Here's an example of how to start three regtest nodes, each one using the
 shared regtest services provided by docker compose:
 ```sh
 # 1st shell
-rgb-lightning-node user:password@localhost:18443 dataldk0/ \
-    --daemon-listening-port 3001 --ldk-peer-listening-port 9735 --network regtest
+rgb-lightning-node dataldk0/ --daemon-listening-port 3001 \
+    --ldk-peer-listening-port 9735 --network regtest
 
 # 2nd shell
-rgb-lightning-node user:password@localhost:18443 dataldk1/ \
-    --daemon-listening-port 3002 --ldk-peer-listening-port 9736 --network regtest
+rgb-lightning-node dataldk1/ --daemon-listening-port 3002 \
+    --ldk-peer-listening-port 9736 --network regtest
 
 # 3rd shell
-rgb-lightning-node user:password@localhost:18443 dataldk2/ \
-    --daemon-listening-port 3003 --ldk-peer-listening-port 9737 --network regtest
+rgb-lightning-node dataldk2/ --daemon-listening-port 3003 \
+    --ldk-peer-listening-port 9737 --network regtest
 ```
 
 To send some bitcoins to a node, first get a bitcoin address with the POST
@@ -103,6 +103,14 @@ For more info about regtest utility commands, run:
 ./regtest.sh -h
 ```
 
+When unlocking regtest nodes use the following local services:
+- bitcoind_rpc_username: user
+- bitcoind_rpc_username: password
+- bitcoind_rpc_host: localhost
+- bitcoind_rpc_port: 18433
+- indexer_url: 127.0.0.1:50001
+- proxy_endpoint: rpc://127.0.0.1:3000/json-rpc
+
 ### Testnet
 
 When running the node on the testnet network the docker services are not needed
@@ -113,17 +121,25 @@ external testnet services:
 
 ```sh
 # 1st shell
-rgb-lightning-node user:password@electrum.iriswallet.com:18332 dataldk0/ \
-    --daemon-listening-port 3001 --ldk-peer-listening-port 9735 --network testnet
+rgb-lightning-node dataldk0/ --daemon-listening-port 3001 \
+    --ldk-peer-listening-port 9735 --network testnet
 
 # 2nd shell
-rgb-lightning-node user:password@electrum.iriswallet.com:18332 dataldk1/ 9736 testnet
-    --daemon-listening-port 3002 --ldk-peer-listening-port 9736 --network testnet
+rgb-lightning-node dataldk1/ --daemon-listening-port 3002 \
+    --ldk-peer-listening-port 9736 --network testnet
 
 # 3rd shell
-rgb-lightning-node user:password@electrum.iriswallet.com:18332 dataldk2/ \
-    --daemon-listening-port 3003 --ldk-peer-listening-port 9737 --network testnet
+rgb-lightning-node dataldk2/ --daemon-listening-port 3003 \
+    --ldk-peer-listening-port 9737 --network testnet
 ```
+
+When unlocking testnet nodes you can use the following services:
+- bitcoind_rpc_username: user
+- bitcoind_rpc_username: password
+- bitcoind_rpc_host: electrum.iriswallet.com
+- bitcoind_rpc_port: 18332
+- indexer_url: ssl://electrum.iriswallet.com:50013
+- proxy_endpoint: rpcs://proxy.iriswallet.com/0.2/json-rpc
 
 ## Use
 
@@ -140,14 +156,17 @@ The node currently exposes the following APIs:
 - `/address` (POST)
 - `/assetbalance` (POST)
 - `/backup` (POST)
-- `/btcbalance` (GET)
+- `/btcbalance` (POST)
 - `/changepassword` (POST)
+- `/checkindexerurl` (POST)
 - `/closechannel` (POST)
 - `/connectpeer` (POST)
 - `/createutxos` (POST)
 - `/decodelninvoice` (POST)
 - `/decodergbinvoice` (POST)
 - `/disconnectpeer` (POST)
+- `/estimatefee` (POST)
+- `/failtransfers` (POST)
 - `/getassetmedia` (POST)
 - `/getchannelid` (POST)
 - `/init` (POST)
@@ -161,9 +180,9 @@ The node currently exposes the following APIs:
 - `/listpayments` (GET)
 - `/listpeers` (GET)
 - `/listswaps` (GET)
-- `/listtransactions` (GET)
+- `/listtransactions` (POST)
 - `/listtransfers` (POST)
-- `/listunspents` (GET)
+- `/listunspents` (POST)
 - `/lninvoice` (POST)
 - `/lock` (POST)
 - `/makerexecute` (POST)
@@ -181,6 +200,7 @@ The node currently exposes the following APIs:
 - `/sendpayment` (POST)
 - `/shutdown` (POST)
 - `/signmessage` (POST)
+- `/sync` (POST)
 - `/taker` (POST)
 - `/unlock` (POST)
 

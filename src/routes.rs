@@ -43,6 +43,10 @@ use rgb_lib::{
     generate_keys,
     utils::recipient_id_from_script_buf,
     wallet::{
+        rust_only::{
+            check_indexer_url as rgb_lib_check_indexer_url,
+            IndexerProtocol as RgbLibIndexerProtocol,
+        },
         AssetCFA as RgbLibAssetCFA, AssetIface as RgbLibAssetIface, AssetNIA as RgbLibAssetNIA,
         AssetUDA as RgbLibAssetUDA, Balance as RgbLibBalance, Invoice as RgbLibInvoice,
         Media as RgbLibMedia, Recipient, RecipientInfo, TokenLight as RgbLibTokenLight,
@@ -310,6 +314,11 @@ impl From<RgbLibBalance> for BtcBalance {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct BtcBalanceRequest {
+    pub(crate) skip_sync: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct BtcBalanceResponse {
     pub(crate) vanilla: BtcBalance,
     pub(crate) colored: BtcBalance,
@@ -342,6 +351,16 @@ pub(crate) struct Channel {
     pub(crate) asset_remote_amount: Option<u64>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct CheckIndexerUrlRequest {
+    pub(crate) indexer_url: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct CheckIndexerUrlResponse {
+    pub(crate) indexer_protocol: IndexerProtocol,
+}
+
 #[derive(Deserialize, Serialize)]
 pub(crate) struct CloseChannelRequest {
     pub(crate) channel_id: String,
@@ -360,6 +379,7 @@ pub(crate) struct CreateUtxosRequest {
     pub(crate) num: Option<u8>,
     pub(crate) size: Option<u32>,
     pub(crate) fee_rate: f32,
+    pub(crate) skip_sync: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -405,6 +425,28 @@ pub(crate) struct DisconnectPeerRequest {
 pub(crate) struct EmptyResponse {}
 
 #[derive(Deserialize, Serialize)]
+pub(crate) struct EstimateFeeRequest {
+    pub(crate) blocks: u16,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct EstimateFeeResponse {
+    pub(crate) fee_rate: f64,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct FailTransfersRequest {
+    pub(crate) batch_transfer_idx: Option<i32>,
+    pub(crate) no_asset_only: bool,
+    pub(crate) skip_sync: bool,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct FailTransfersResponse {
+    pub(crate) transfers_changed: bool,
+}
+
+#[derive(Deserialize, Serialize)]
 pub(crate) struct GetAssetMediaRequest {
     pub(crate) digest: String,
 }
@@ -436,6 +478,21 @@ impl_writeable_tlv_based_enum!(HTLCStatus,
     (1, Succeeded) => {},
     (2, Failed) => {};
 );
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) enum IndexerProtocol {
+    Electrum,
+    Esplora,
+}
+
+impl From<RgbLibIndexerProtocol> for IndexerProtocol {
+    fn from(x: RgbLibIndexerProtocol) -> Self {
+        match x {
+            RgbLibIndexerProtocol::Electrum => Self::Electrum,
+            RgbLibIndexerProtocol::Esplora => Self::Esplora,
+        }
+    }
+}
 
 #[derive(Deserialize, Serialize)]
 pub(crate) struct InitRequest {
@@ -556,6 +613,11 @@ pub(crate) struct ListSwapsResponse {
 }
 
 #[derive(Deserialize, Serialize)]
+pub(crate) struct ListTransactionsRequest {
+    pub(crate) skip_sync: bool,
+}
+
+#[derive(Deserialize, Serialize)]
 pub(crate) struct ListTransactionsResponse {
     pub(crate) transactions: Vec<Transaction>,
 }
@@ -568,6 +630,11 @@ pub(crate) struct ListTransfersRequest {
 #[derive(Deserialize, Serialize)]
 pub(crate) struct ListTransfersResponse {
     pub(crate) transfers: Vec<Transfer>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct ListUnspentsRequest {
+    pub(crate) skip_sync: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -694,6 +761,11 @@ pub(crate) struct PostAssetMediaResponse {
 }
 
 #[derive(Deserialize, Serialize)]
+pub(crate) struct RefreshRequest {
+    pub(crate) skip_sync: bool,
+}
+
+#[derive(Deserialize, Serialize)]
 pub(crate) struct RestoreRequest {
     pub(crate) backup_path: String,
     pub(crate) password: String,
@@ -741,6 +813,7 @@ pub(crate) struct SendBtcRequest {
     pub(crate) amount: u64,
     pub(crate) address: String,
     pub(crate) fee_rate: f32,
+    pub(crate) skip_sync: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -911,6 +984,12 @@ pub(crate) enum TransportType {
 #[derive(Deserialize, Serialize)]
 pub(crate) struct UnlockRequest {
     pub(crate) password: String,
+    pub(crate) bitcoind_rpc_username: String,
+    pub(crate) bitcoind_rpc_password: String,
+    pub(crate) bitcoind_rpc_host: String,
+    pub(crate) bitcoind_rpc_port: u16,
+    pub(crate) indexer_url: Option<String>,
+    pub(crate) proxy_endpoint: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -980,6 +1059,7 @@ impl From<RgbLibError> for APIError {
             RgbLibError::AllocationsAlreadyAvailable => APIError::AllocationsAlreadyAvailable,
             RgbLibError::AssetNotFound { .. } => APIError::UnknownContractId,
             RgbLibError::FailedIssuance { details } => APIError::FailedIssuingAsset(details),
+            RgbLibError::Indexer { details } => APIError::Indexer(details),
             RgbLibError::InsufficientAllocationSlots => APIError::NoAvailableUtxos,
             RgbLibError::InsufficientBitcoins { needed, available } => {
                 APIError::InsufficientFunds(needed - available)
@@ -987,7 +1067,9 @@ impl From<RgbLibError> for APIError {
             RgbLibError::InsufficientSpendableAssets { .. } => APIError::InsufficientAssets,
             RgbLibError::InsufficientTotalAssets { .. } => APIError::InsufficientAssets,
             RgbLibError::InvalidAssetID { asset_id } => APIError::InvalidAssetID(asset_id),
+            RgbLibError::InvalidElectrum { details } => APIError::InvalidIndexer(details),
             RgbLibError::InvalidFeeRate { details } => APIError::InvalidFeeRate(details),
+            RgbLibError::InvalidIndexer { details } => APIError::InvalidIndexer(details),
             RgbLibError::InvalidName { details } => APIError::InvalidName(details),
             RgbLibError::InvalidPrecision { details } => APIError::InvalidPrecision(details),
             RgbLibError::InvalidRecipientID => APIError::InvalidRecipientID,
@@ -1078,10 +1160,11 @@ pub(crate) async fn backup(
 
 pub(crate) async fn btc_balance(
     State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<BtcBalanceRequest>, APIError>,
 ) -> Result<Json<BtcBalanceResponse>, APIError> {
     let unlocked_state = state.check_unlocked().await?.clone().unwrap();
 
-    let btc_balance = unlocked_state.rgb_get_btc_balance()?;
+    let btc_balance = unlocked_state.rgb_get_btc_balance(payload.skip_sync)?;
 
     let vanilla = BtcBalance {
         settled: btc_balance.vanilla.settled,
@@ -1119,6 +1202,16 @@ pub(crate) async fn change_password(
         Ok(Json(EmptyResponse {}))
     })
     .await
+}
+
+pub(crate) async fn check_indexer_url(
+    State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<CheckIndexerUrlRequest>, APIError>,
+) -> Result<Json<CheckIndexerUrlResponse>, APIError> {
+    let indexer_protocol =
+        rgb_lib_check_indexer_url(&payload.indexer_url, state.static_state.network)?.into();
+
+    Ok(Json(CheckIndexerUrlResponse { indexer_protocol }))
 }
 
 pub(crate) async fn close_channel(
@@ -1207,6 +1300,7 @@ pub(crate) async fn create_utxos(
             payload.num.unwrap_or(UTXO_NUM),
             payload.size.unwrap_or(UTXO_SIZE_SAT),
             payload.fee_rate,
+            payload.skip_sync,
         )?;
         tracing::debug!("UTXO creation complete");
 
@@ -1312,6 +1406,38 @@ pub(crate) async fn disconnect_peer(
     .await
 }
 
+pub(crate) async fn estimate_fee(
+    State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<EstimateFeeRequest>, APIError>,
+) -> Result<Json<EstimateFeeResponse>, APIError> {
+    let fee_rate = state
+        .check_unlocked()
+        .await?
+        .clone()
+        .unwrap()
+        .rgb_get_fee_estimation(payload.blocks)?;
+
+    Ok(Json(EstimateFeeResponse { fee_rate }))
+}
+
+pub(crate) async fn fail_transfers(
+    State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<FailTransfersRequest>, APIError>,
+) -> Result<Json<FailTransfersResponse>, APIError> {
+    no_cancel(async move {
+        let unlocked_state = state.check_unlocked().await?.clone().unwrap();
+
+        let transfers_changed = unlocked_state.rgb_fail_transfers(
+            payload.batch_transfer_idx,
+            payload.no_asset_only,
+            payload.skip_sync,
+        )?;
+
+        Ok(Json(FailTransfersResponse { transfers_changed }))
+    })
+    .await
+}
+
 pub(crate) async fn get_asset_media(
     State(state): State<Arc<AppState>>,
     WithRejection(Json(payload), _): WithRejection<Json<GetAssetMediaRequest>, APIError>,
@@ -1362,7 +1488,7 @@ pub(crate) async fn init(
         let mnemonic_path = get_mnemonic_path(&state.static_state.storage_dir_path);
         check_already_initialized(&mnemonic_path)?;
 
-        let keys = generate_keys(state.static_state.network.into());
+        let keys = generate_keys(state.static_state.network);
 
         let mnemonic = keys.mnemonic;
 
@@ -1800,11 +1926,12 @@ pub(crate) async fn list_swaps(
 
 pub(crate) async fn list_transactions(
     State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<ListTransactionsRequest>, APIError>,
 ) -> Result<Json<ListTransactionsResponse>, APIError> {
     let unlocked_state = state.check_unlocked().await?.clone().unwrap();
 
     let mut transactions = vec![];
-    for tx in unlocked_state.rgb_list_transactions()? {
+    for tx in unlocked_state.rgb_list_transactions(payload.skip_sync)? {
         transactions.push(Transaction {
             transaction_type: match tx.transaction_type {
                 rgb_lib::TransactionType::RgbSend => TransactionType::RgbSend,
@@ -1876,11 +2003,12 @@ pub(crate) async fn list_transfers(
 
 pub(crate) async fn list_unspents(
     State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<ListUnspentsRequest>, APIError>,
 ) -> Result<Json<ListUnspentsResponse>, APIError> {
     let unlocked_state = state.check_unlocked().await?.clone().unwrap();
 
     let mut unspents = vec![];
-    for unspent in unlocked_state.rgb_list_unspents()? {
+    for unspent in unlocked_state.rgb_list_unspents(payload.skip_sync)? {
         unspents.push(Unspent {
             utxo: Utxo {
                 outpoint: unspent.utxo.outpoint.to_string(),
@@ -1921,11 +2049,10 @@ pub(crate) async fn ln_invoice(
         }
 
         let currency = match state.static_state.network {
-            Network::Bitcoin => Currency::Bitcoin,
-            Network::Testnet => Currency::BitcoinTestnet,
-            Network::Regtest => Currency::Regtest,
-            Network::Signet => Currency::Signet,
-            _ => unimplemented!("unsupported network"),
+            RgbLibNetwork::Mainnet => Currency::Bitcoin,
+            RgbLibNetwork::Testnet => Currency::BitcoinTestnet,
+            RgbLibNetwork::Regtest => Currency::Regtest,
+            RgbLibNetwork::Signet => Currency::Signet,
         };
         let invoice = match create_invoice_from_channelmanager(
             &unlocked_state.channel_manager,
@@ -2431,7 +2558,7 @@ pub(crate) async fn open_channel(
                 return Err(APIError::InsufficientAssets);
             }
 
-            Some(RgbTransport::from_str(&state.static_state.proxy_endpoint).unwrap())
+            Some(RgbTransport::from_str(&unlocked_state.proxy_endpoint).unwrap())
         } else {
             None
         };
@@ -2440,8 +2567,7 @@ pub(crate) async fn open_channel(
             let mut fake_p2wsh: [u8; 34] = [0; 34];
             fake_p2wsh[1] = 32;
             let script_buf = ScriptBuf::from_bytes(fake_p2wsh.to_vec());
-            let recipient_id =
-                recipient_id_from_script_buf(script_buf, state.static_state.network.into());
+            let recipient_id = recipient_id_from_script_buf(script_buf, state.static_state.network);
             let asset_id = contract_id.to_string();
             let recipient_map = map! {
                 asset_id => vec![Recipient {
@@ -2451,7 +2577,7 @@ pub(crate) async fn open_channel(
                         blinding: Some(STATIC_BLINDING + 1),
                     }),
                     amount: *asset_amount,
-                    transport_endpoints: vec![state.static_state.proxy_endpoint.clone()]
+                    transport_endpoints: vec![unlocked_state.proxy_endpoint.clone()]
             }]};
 
             let unlocked_state_copy = unlocked_state.clone();
@@ -2568,11 +2694,12 @@ pub(crate) async fn post_asset_media(
 
 pub(crate) async fn refresh_transfers(
     State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<RefreshRequest>, APIError>,
 ) -> Result<Json<EmptyResponse>, APIError> {
     no_cancel(async move {
         let unlocked_state = state.check_unlocked().await?.clone().unwrap();
 
-        tokio::task::spawn_blocking(move || unlocked_state.rgb_refresh())
+        tokio::task::spawn_blocking(move || unlocked_state.rgb_refresh(payload.skip_sync))
             .await
             .unwrap()?;
 
@@ -2620,7 +2747,7 @@ pub(crate) async fn rgb_invoice(
         let receive_data = unlocked_state.rgb_blind_receive(
             payload.asset_id,
             payload.duration_seconds,
-            vec![state.static_state.proxy_endpoint.clone()],
+            vec![unlocked_state.proxy_endpoint.clone()],
             payload.min_confirmations,
         )?;
 
@@ -2679,8 +2806,12 @@ pub(crate) async fn send_btc(
     no_cancel(async move {
         let unlocked_state = state.check_unlocked().await?.clone().unwrap();
 
-        let txid =
-            unlocked_state.rgb_send_btc(payload.address, payload.amount, payload.fee_rate)?;
+        let txid = unlocked_state.rgb_send_btc(
+            payload.address,
+            payload.amount,
+            payload.fee_rate,
+            payload.skip_sync,
+        )?;
 
         Ok(Json(SendBtcResponse { txid }))
     })
@@ -2947,6 +3078,19 @@ pub(crate) async fn sign_message(
     Ok(Json(SignMessageResponse { signed_message }))
 }
 
+pub(crate) async fn sync(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<EmptyResponse>, APIError> {
+    no_cancel(async move {
+        let unlocked_state = state.check_unlocked().await?.clone().unwrap();
+
+        unlocked_state.rgb_sync()?;
+
+        Ok(Json(EmptyResponse {}))
+    })
+    .await
+}
+
 pub(crate) async fn taker(
     State(state): State<Arc<AppState>>,
     WithRejection(Json(payload), _): WithRejection<Json<TakerRequest>, APIError>,
@@ -3009,7 +3153,7 @@ pub(crate) async fn unlock(
 
         tracing::debug!("Starting LDK...");
         let (new_ldk_background_services, new_unlocked_app_state) =
-            match start_ldk(state.clone(), mnemonic).await {
+            match start_ldk(state.clone(), mnemonic, payload).await {
                 Ok((nlbs, nuap)) => (nlbs, nuap),
                 Err(e) => {
                     state.update_changing_state(false);
