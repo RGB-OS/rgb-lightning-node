@@ -25,6 +25,9 @@ pub enum APIError {
     #[error("Anchor outputs are required for RGB channels")]
     AnchorsRequired,
 
+    #[error("Cannot estimate fees")]
+    CannotEstimateFees,
+
     #[error("Cannot open channel: {0}")]
     CannotOpenChannel(String),
 
@@ -36,6 +39,9 @@ pub enum APIError {
 
     #[error("Failed to connect to bitcoind client: {0}")]
     FailedBitcoindConnection(String),
+
+    #[error("Failed broadcast: {0}")]
+    FailedBroadcast(String),
 
     #[error("Failed closing channel: {0}")]
     FailedClosingChannel(String),
@@ -272,8 +278,10 @@ impl IntoResponse for APIError {
             APIError::WrongPassword => (StatusCode::UNAUTHORIZED, self.to_string()),
             APIError::AllocationsAlreadyAvailable
             | APIError::AlreadyInitialized
+            | APIError::CannotEstimateFees
             | APIError::CannotOpenChannel(_)
             | APIError::ChangingState
+            | APIError::FailedBroadcast(_)
             | APIError::FailedBitcoindConnection(_)
             | APIError::Indexer(_)
             | APIError::InsufficientAssets
