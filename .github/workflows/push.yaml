@@ -3,7 +3,7 @@ name: Build and Push Docker Image to ECR
 on:
   push:
     branches:
-      - main  # Trigger this workflow only on push to the main branch
+      - master  # Trigger this workflow only on push to the main branch
 
 jobs:
   build-and-push:
