@@ -79,12 +79,8 @@ jobs:
 
     - name: Tag image with prod-<commit_id> and prod-latest
       run: |
-        docker tag ${{ secrets.AWS_ECR_REPOSITORY }}:${{ github.sha }} ${{ secrets.AWS_ECR_REPOSITORY }}:prod-${{ github.sha }}
         docker tag ${{ secrets.AWS_ECR_REPOSITORY }}:${{ github.sha }} ${{ secrets.AWS_ECR_REPOSITORY }}:prod-latest
 
-    - name: Push prod-<commit_id> tag to ECR
-      run: |
-        docker push ${{ secrets.AWS_ECR_REPOSITORY }}:prod-${{ github.sha }}
 
     - name: Push prod-latest tag to ECR
       run: |
