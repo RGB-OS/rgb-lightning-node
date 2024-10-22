@@ -41,6 +41,9 @@ jobs:
       run: |
         docker push ${{ secrets.AWS_ECR_REPOSITORY }}:${{ github.sha }}
 
+    - name: Push Docker Image to ECR
+      run: |
+        docker push ${{ secrets.AWS_ECR_REPOSITORY }}:latest
     - name: Verify pushed image
       run: |
         echo "Image ${{ secrets.AWS_ECR_REPOSITORY }}:${{ github.sha }} has been successfully pushed."
