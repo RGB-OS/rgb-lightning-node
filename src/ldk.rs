@@ -83,7 +83,7 @@ use crate::disk::{
     MAKER_SWAPS_FNAME, OUTBOUND_PAYMENTS_FNAME, OUTPUT_SPENDER_TXES, TAKER_SWAPS_FNAME,
 };
 use crate::error::APIError;
-use crate::rgb::{get_rgb_channel_info_optional, RgbLibWalletWrapper};
+use crate::rgb::{check_rgb_proxy_endpoint, get_rgb_channel_info_optional, RgbLibWalletWrapper};
 use crate::routes::{HTLCStatus, SwapStatus, UnlockRequest, DUST_LIMIT_MSAT};
 use crate::swap::SwapData;
 use crate::utils::{
@@ -1413,24 +1413,32 @@ pub(crate) async fn start_ldk(
 
     // RGB setup
     let indexer_url = if let Some(indexer_url) = &unlock_request.indexer_url {
-        check_indexer_url(indexer_url, bitcoin_network)?;
+        let indexer_protocol = check_indexer_url(indexer_url, bitcoin_network)?;
+        tracing::info!(
+            "Connected to an indexer with the {} protocol",
+            indexer_protocol
+        );
         indexer_url
     } else {
+        tracing::info!("Using the default indexer");
         match bitcoin_network {
             BitcoinNetwork::Testnet => ELECTRUM_URL_TESTNET,
             BitcoinNetwork::Regtest => ELECTRUM_URL_REGTEST,
             _ => unimplemented!("unsupported network"),
         }
     };
-    let proxy_endpoint =
-        unlock_request
-            .proxy_endpoint
-            .as_deref()
-            .unwrap_or_else(|| match bitcoin_network {
-                BitcoinNetwork::Testnet => PROXY_ENDPOINT_TESTNET,
-                BitcoinNetwork::Regtest => PROXY_ENDPOINT_REGTEST,
-                _ => unimplemented!("unsupported network"),
-            });
+    let proxy_endpoint = if let Some(proxy_endpoint) = &unlock_request.proxy_endpoint {
+        check_rgb_proxy_endpoint(proxy_endpoint).await?;
+        tracing::info!("Using a custom proxy");
+        proxy_endpoint
+    } else {
+        tracing::info!("Using the default proxy");
+        match bitcoin_network {
+            BitcoinNetwork::Testnet => PROXY_ENDPOINT_TESTNET,
+            BitcoinNetwork::Regtest => PROXY_ENDPOINT_REGTEST,
+            _ => unimplemented!("unsupported network"),
+        }
+    };
     let storage_dir_path = app_state.static_state.storage_dir_path.clone();
     fs::write(storage_dir_path.join(INDEXER_URL_FNAME), indexer_url).expect("able to write");
     fs::write(
