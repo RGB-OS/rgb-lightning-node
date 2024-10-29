@@ -30,7 +30,7 @@ echo "Next available NVMe device: $AVAILABLE_NVME_DEVICE"
 
 AVAILABLE_DEVICE=""
 # Get all attached devices in one line, and split into individual device names
-ATTACHED_DEVICES=$(aws ec2 describe-instances --instance-id $INSTANCE_ID --query 'Reservations[].Instances[].BlockDeviceMappings[].DeviceName' --output text | tr '\t' '\n')
+ATTACHED_DEVICES=$(aws ec2 describe-volumes --filters Name=attachment.instance-id,Values=$INSTANCE_ID Name=attachment.status,Values=attached,attaching --query 'Volumes[].Attachments[].Device' --output text | tr '\t' '\n')
 
 for device in {f..p}; do
     DEVICE_NAME="/dev/xvd$device"
