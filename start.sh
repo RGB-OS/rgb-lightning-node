@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Use the first argument specifically for `mount-s3` and then shift it out
-s3fs $1 /s3 -o iam_role=auto -o ecs -o endpoint=us-east-2
+# Use the first argument specifically for `s3fs` and then shift it out
+s3fs $1 /s3 -o ecs
 VOLUME_ID=$2
 USER_ID=$3
 NODE_ID=$4
