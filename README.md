@@ -35,7 +35,7 @@ git clone https://github.com/RGB-Tools/rgb-lightning-node --recurse-submodules -
 Then, from the project root, install the `rgb-lightning-node` binary by
 running:
 ```sh
-cargo install --debug --path .
+cargo install --locked --debug --path .
 ```
 
 ## Run
@@ -105,7 +105,7 @@ For more info about regtest utility commands, run:
 
 When unlocking regtest nodes use the following local services:
 - bitcoind_rpc_username: user
-- bitcoind_rpc_username: password
+- bitcoind_rpc_password: password
 - bitcoind_rpc_host: localhost
 - bitcoind_rpc_port: 18433
 - indexer_url: 127.0.0.1:50001
