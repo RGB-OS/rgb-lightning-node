@@ -57,11 +57,12 @@ jobs:
       run: |
         git clone https://github.com/RGB-OS/thunderstack-tests.git test-repo
 
-    - name: Set up Node.js
+    - name: Set up Node.js in test-repo
       uses: actions/setup-node@v4
       with:
         node-version: 18
         cache: 'npm'
+        cache-dependency-path: test-repo/package-lock.json
         
     - name: Install Test Dependencies
       run: |
