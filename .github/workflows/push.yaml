@@ -52,6 +52,34 @@ jobs:
     - name: Verify pushed image
       run: |
         echo "Image ${{ secrets.AWS_ECR_REPOSITORY }}:${{ github.sha }} has been successfully pushed."
+    
+    - name: Clone Test Repository
+      run: |
+        git clone https://github.com/RGB-OS/thunderstack-tests.git test-repo
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18
+        cache: 'npm'
+        
+    - name: Install Test Dependencies
+      run: |
+        cd test-repo
+        npm install
+        
+    - name: Set up Environment Variables
+      run: |
+        echo "CLOUD_API=${{ secrets.TEST_CLOUD_API }}" >> $GITHUB_ENV
+        echo "AUTH_TOKEN=${{ secrets.TEST_AUTH_TOKEN }}" >> $GITHUB_ENV
+        echo "NODE_PASSWORD=12345678" >> $GITHUB_ENV
+        echo "NETWORK=regtest" >> $GITHUB_ENV
+      working-directory: test-repo
+      
+    - name: Run Playwright Tests
+      run: |
+        cd test-repo
+        NODE_NAME=Node_A npx playwright test tests/api.node-run.test.ts
 
 # New job to tag and push the existing image manually
   retag-and-push:
