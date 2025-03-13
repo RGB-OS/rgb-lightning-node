@@ -81,6 +81,7 @@ jobs:
       run: |
         cd test-repo
         NODE_NAME=Node_A npx playwright test tests/api.node-run.test.ts
+        NODE_NAME=Node_A npx playwright test tests/api.node-destroy.test.ts   
 
 # New job to tag and push the existing image manually
   retag-and-push:
