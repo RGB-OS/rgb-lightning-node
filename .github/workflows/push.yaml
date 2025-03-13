@@ -67,7 +67,10 @@ jobs:
     - name: Install Test Dependencies
       run: |
         cd test-repo
+        npm ci
         npm install
+    - name: Install Playwright Browsers
+      run: npx playwright install --with-deps
         
     - name: Set up Environment Variables
       run: |
@@ -82,6 +85,7 @@ jobs:
         cd test-repo
         NODE_NAME=Node_A npx playwright test tests/api.node-run.test.ts
         NODE_NAME=Node_A npx playwright test tests/api.node-destroy.test.ts   
+        
     - name: Upload Playwright Report
       uses: actions/upload-artifact@v4
       with:
