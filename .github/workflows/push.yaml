@@ -65,7 +65,9 @@ jobs:
         git clone https://github.com/RGB-OS/thunderstack-tests.git test-repo
         cd test-repo
     - name: Install dependencies
-      run: npm ci
+      run: |
+        npm ci
+        npm install
       working-directory: test-repo
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
@@ -76,8 +78,10 @@ jobs:
         echo "AUTH_TOKEN=${{ secrets.TEST_AUTH_TOKEN }}" >> $GITHUB_ENV
         echo "NODE_PASSWORD=12345678" >> $GITHUB_ENV
         echo "NETWORK=regtest" >> $GITHUB_ENV
+      working-directory: test-repo
     - name: Run Playwright tests
       run: NODE_NAME=Node_A npx playwright test tests/api.node-run.test.ts
+      working-directory: test-repo
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:
