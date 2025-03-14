@@ -66,6 +66,7 @@ jobs:
         cd test-repo
     - name: Install dependencies
       run: npm ci
+      working-directory: test-repo
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
     - name: Set up Environment Variables
@@ -74,10 +75,8 @@ jobs:
         echo "AUTH_TOKEN=${{ secrets.TEST_AUTH_TOKEN }}" >> $GITHUB_ENV
         echo "NODE_PASSWORD=12345678" >> $GITHUB_ENV
         echo "NETWORK=regtest" >> $GITHUB_ENV
-        echo "NODE_NAME=Node_A" >> $GITHUB_ENV
-        echo "NODE_NAME=Node_B" >> $GITHUB_ENV
     - name: Run Playwright tests
-      run: npx playwright test tests/api.node-run.test.ts
+      run: NODE_NAME=Node_A npx playwright test tests/api.node-run.test.ts
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:
