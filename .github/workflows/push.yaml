@@ -80,7 +80,15 @@ jobs:
         echo "NETWORK=regtest" >> $GITHUB_ENV
       working-directory: test-repo
     - name: Run Playwright tests
-      run: NODE_NAME=Node_A npx playwright test tests/api.node-run.test.ts
+      run: |
+         NODE_NAME=Node_A npx playwright test tests/api.node-run.test.ts
+         NODE_NAME=Node_B npx playwright test tests/api.node-run.test.ts
+         NODE_NAME=Node_A npx playwright test tests/api.node-issueasset.test.ts
+         NODE_NAME_A='Node_A' NODE_NAME_B='Node_B' npx playwright test tests/api.node-openchannel_asset.test.ts
+         NODE_NAME_A='Node_A' NODE_NAME_B='Node_B' npx playwright test tests/api.node-payment_asset.test.ts
+         NODE_NAME_A='Node_A' NODE_NAME_B='Node_B' npx playwright test tests/api.node-closechannel.test.ts
+         NODE_NAME=Node_A npx playwright test tests/api.node-destroy.test.ts   
+         NODE_NAME=Node_B npx playwright test tests/api.node-destroy.test.ts  
       working-directory: test-repo
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
