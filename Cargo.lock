@@ -1003,7 +1003,7 @@ dependencies = [
 [[package]]
 name = "bolt-derive"
 version = "0.4.0"
-source = "git+ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3050,9 +3050,9 @@ dependencies = [
 [[package]]
 name = "lightning-storage-server"
 version = "0.5.0"
-source = "git+ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
 dependencies = [
- "bitcoin_hashes 0.14.0",
+ "bitcoin_hashes 0.13.0",
  "hex",
  "log",
  "prost",
@@ -4302,6 +4302,7 @@ version = "0.1.0"
 dependencies = [
  "amplify",
  "anyhow",
+ "async-trait",
  "axum",
  "axum-extra",
  "baid58",
@@ -4311,6 +4312,7 @@ dependencies = [
  "chacha20poly1305",
  "chrono",
  "clap",
+ "ctrlc",
  "dircmp",
  "dirs 5.0.1",
  "electrum-client 0.20.0",
@@ -4349,6 +4351,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "tracing-test",
+ "triggered",
  "typenum",
  "url",
  "uuid",
@@ -6175,7 +6178,7 @@ dependencies = [
 [[package]]
 name = "vls-common"
 version = "0.14.0-rc.1"
-source = "git+ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
 dependencies = [
  "bitcoin",
  "hex",
@@ -6184,7 +6187,7 @@ dependencies = [
 [[package]]
 name = "vls-core"
 version = "0.14.0-rc.1"
-source = "git+ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
 dependencies = [
  "ahash",
  "anyhow",
@@ -6214,7 +6217,7 @@ dependencies = [
 [[package]]
 name = "vls-frontend"
 version = "0.14.0-rc.1"
-source = "git+ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
 dependencies = [
  "async-trait",
  "lightning-storage-server",
@@ -6229,7 +6232,7 @@ dependencies = [
 [[package]]
 name = "vls-persist"
 version = "0.14.0-rc.1"
-source = "git+ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
 dependencies = [
  "hex",
  "log",
@@ -6247,7 +6250,7 @@ dependencies = [
 [[package]]
 name = "vls-policy-derive"
 version = "0.1.0"
-source = "git+ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6257,7 +6260,7 @@ dependencies = [
 [[package]]
 name = "vls-protocol"
 version = "0.14.0-rc.1"
-source = "git+ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
 dependencies = [
  "as-any",
  "bitcoin-consensus-derive",
@@ -6272,7 +6275,7 @@ dependencies = [
 [[package]]
 name = "vls-protocol-client"
 version = "0.14.0-rc.1"
-source = "git+ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6286,7 +6289,7 @@ dependencies = [
 [[package]]
 name = "vls-protocol-signer"
 version = "0.14.0-rc.1"
-source = "git+ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
 dependencies = [
  "bit-vec",
  "log",
@@ -6298,7 +6301,7 @@ dependencies = [
 [[package]]
 name = "vls-proxy"
 version = "0.14.0-rc.1"
-source = "git+ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -6331,7 +6334,7 @@ dependencies = [
 [[package]]
 name = "vls-util"
 version = "0.14.0-rc.1"
-source = "git+ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
 dependencies = [
  "fern",
  "log",
@@ -6347,7 +6350,7 @@ dependencies = [
 [[package]]
 name = "vlsd"
 version = "0.14.0-rc.1"
-source = "git+ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
 dependencies = [
  "anyhow",
  "async-stream",
