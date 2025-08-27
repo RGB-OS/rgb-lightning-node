@@ -68,7 +68,7 @@ _start_services() {
 
     mkdir -p data{core,index,ldk0,ldk1,ldk2}
     # see compose.yaml for the exposed ports
-    EXPOSED_PORTS=(3000 50001)
+    EXPOSED_PORTS=(3000 3001 7701 9735 50001)
     for port in "${EXPOSED_PORTS[@]}"; do
         if _is_port_bound "$port"; then
             _die "port $port is already bound, services can't be started"

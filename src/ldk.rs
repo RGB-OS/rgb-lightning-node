@@ -29,7 +29,7 @@ use lightning::routing::gossip::{NodeId, P2PGossipSync};
 use lightning::routing::router::DefaultRouter;
 use lightning::routing::scoring::{ProbabilisticScorer, ProbabilisticScoringFeeParameters};
 use lightning::sign::{
-    EntropySource, InMemorySigner, KeysManager, OutputSpender, SpendableOutputDescriptor,
+    EntropySource, InMemorySigner, KeysManager, NodeSigner, OutputSpender, SpendableOutputDescriptor,
 };
 use lightning::util::config::UserConfig;
 use lightning::util::persist::{
@@ -1528,30 +1528,67 @@ pub(crate) async fn start_ldk(
     let keys_manager = Arc::new(KeysManager::new(&seed, now.as_secs(), now.subsec_nanos(), ldk_data_dir.clone()));
 
     // Initialize VLS client if enabled
-    let vls_client = if crate::vls::is_vls_enabled() {
-        let vls_port = std::env::var("VLS_PORT")
-            .unwrap_or_else(|_| "7701".to_string())
-            .parse::<u16>()
-            .unwrap_or(7701);
+    let vls_keys_manager = if crate::vls::is_vls_enabled() && static_state.enable_vls {
+        tracing::info!("🔐 VLS (Validating Lightning Signer) integration enabled");
+        tracing::info!("   📍 gRPC endpoint will be created on port {}", static_state.vls_port);
         
-        let client = crate::vls::create_vls_client(format!("http://127.0.0.1:{}", vls_port));
+        // Create VLS sweep address if not provided
+        let sweep_address = if let Some(addr_str) = &static_state.vls_sweep_address {
+            bitcoin::Address::from_str(addr_str)
+                .map_err(|e| APIError::InvalidAddress(format!("Invalid VLS sweep address: {}", e)))?
+                .require_network(network)
+                .map_err(|e| APIError::InvalidAddress(format!("VLS sweep address network mismatch: {}", e)))?
+        } else {
+            // Generate a default sweep address using the keys manager
+            let pubkey = keys_manager.get_node_id(lightning::sign::Recipient::Node)
+                .map_err(|e| APIError::FailedKeysManagerOperation(format!("Failed to get node ID: {:?}", e)))?;
+            
+            // Create a simple P2WPKH address from the node's public key
+            let secp = bitcoin::secp256k1::Secp256k1::new();
+            let compressed_pubkey = bitcoin::CompressedPublicKey::from_private_key(
+                &secp, 
+                &bitcoin::PrivateKey::from_slice(&[1u8; 32], network)
+                    .map_err(|e| APIError::InvalidAddress(format!("Failed to create private key: {}", e)))?
+            ).map_err(|e| APIError::InvalidAddress(format!("Failed to create compressed pubkey: {}", e)))?;
+            
+            bitcoin::Address::p2wpkh(&compressed_pubkey, network)
+        };
         
-        // Try to initialize VLS connection
-        match client.initialize(&bitcoin_network.to_string()).await {
-            Ok(_) => {
-                tracing::info!("VLS client initialized successfully on port {}", vls_port);
-                Some(Arc::new(client))
-            }
+        // Parse Bitcoin RPC URL
+        let bitcoin_rpc_url = url::Url::parse(&static_state.bitcoin_rpc_url)
+            .map_err(|e| APIError::InvalidUrl(format!("Invalid Bitcoin RPC URL: {}", e)))?;
+        
+        // Create Shutter for graceful shutdown coordination
+        let shutter = crate::vls::Shutter::new();
+        
+        // Create VLS gRPC signer - this starts the HsmdService that VLS connects to
+        match crate::vls::make_grpc_signer(
+            shutter,
+            tokio::runtime::Handle::current(),
+            static_state.vls_port,
+            network,
+            ldk_data_dir.to_string_lossy().to_string(),
+            sweep_address,
+            bitcoin_rpc_url,
+        ).await {
+            Ok(vls_manager) => {
+                tracing::info!("✅ VLS gRPC endpoint with HsmdService initialized successfully!");
+                tracing::info!("   🚀 VLS daemon can now connect to: 127.0.0.1:{}", static_state.vls_port);
+                tracing::info!("   💡 Start VLS daemon with: vlsd --network {} --grpc-port {}", network, static_state.vls_port);
+                Some(vls_manager)
+            },
             Err(e) => {
-                tracing::warn!("VLS initialization failed: {}. Continuing without VLS.", e);
-                tracing::info!("To enable VLS:");
-                tracing::info!("1. Start vlsd daemon: vlsd --network {} --grpc-port {}", bitcoin_network, vls_port);
-                tracing::info!("2. Set VLS_PORT environment variable if using different port");
+                tracing::warn!("⚠️  VLS initialization failed: {}", e);
+                tracing::warn!("   Continuing without VLS - using standard KeysManager");
                 None
             }
         }
     } else {
-        tracing::info!("VLS feature not enabled. Compile with --features vls to enable.");
+        if crate::vls::is_vls_enabled() {
+            tracing::info!("VLS feature compiled but not enabled via --enable-vls flag");
+        } else {
+            tracing::info!("VLS feature not compiled. Compile with --features vls to enable.");
+        }
         None
     };
 
@@ -2014,7 +2051,7 @@ pub(crate) async fn start_ldk(
         fs_store: Arc::clone(&fs_store),
         bump_tx_event_handler,
         rgb_wallet_wrapper,
-        vls_client,
+        vls_keys_manager,
         maker_swaps,
         taker_swaps,
         router: Arc::clone(&router),

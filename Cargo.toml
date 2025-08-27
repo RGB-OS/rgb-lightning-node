@@ -54,15 +54,22 @@ uuid = { version = "1.11.0", default-features = false, features = ["v4"] }
 walkdir = "2.5.0"
 zip = { version = "2.2.0", default-features = false, features = ["time", "zstd"] }
 
-# VLS gRPC communication dependencies (no VLS crates needed)
+# VLS gRPC communication dependencies
+async-trait = "0.1"
+ctrlc = "3.4"
 tonic = { version = "0.12", features = ["transport"] }
 prost = "0.13"
 tokio-stream = "0.1"
+triggered = "0.1"
 url = "2.5"
 getrandom = "0.2"
 
 [build-dependencies]
 tonic-build = "0.12"
+
+[features]
+default = []
+vls = ["vls-core", "vls-persist", "vls-proxy"]
 
 [dev-dependencies]
 dircmp = "0.2.0"
@@ -82,20 +89,23 @@ lightning-background-processor = { path = "./rust-lightning/lightning-background
 
 [dependencies.vls-core]
 features = ["std"]
-git = "ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git"
+git = "https://gitlab.com/dablanahuber/validating-lightning-signer.git"
 rev = "36ad8506"
+optional = true
 # path = "../vls/vls-core"
 
 [dependencies.vls-persist]
 features = ["redb-kvv"]
-git = "ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git"
+git = "https://gitlab.com/dablanahuber/validating-lightning-signer.git"
 rev = "36ad8506"
+optional = true
 # path = "../vls/vls-persist"
 
 [dependencies.vls-proxy]
 features = ["developer"]
-git = "ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git"
+git = "https://gitlab.com/dablanahuber/validating-lightning-signer.git"
 rev = "36ad8506"
+optional = true
 # path = "../vls/vls-proxy"
 
 [lints.rust.unexpected_cfgs]

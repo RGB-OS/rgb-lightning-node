@@ -92,6 +92,10 @@ pub(crate) struct StaticState {
     pub(crate) ldk_data_dir: PathBuf,
     pub(crate) logger: Arc<FilesystemLogger>,
     pub(crate) max_media_upload_size_mb: u16,
+    pub(crate) enable_vls: bool,
+    pub(crate) vls_port: u16,
+    pub(crate) bitcoin_rpc_url: String,
+    pub(crate) vls_sweep_address: Option<String>,
 }
 
 pub(crate) struct UnlockedAppState {
@@ -108,7 +112,7 @@ pub(crate) struct UnlockedAppState {
     pub(crate) maker_swaps: Arc<Mutex<SwapMap>>,
     pub(crate) taker_swaps: Arc<Mutex<SwapMap>>,
     pub(crate) rgb_wallet_wrapper: Arc<RgbLibWalletWrapper>,
-    pub(crate) vls_client: Option<Arc<crate::vls::client::VlsClient>>,
+    pub(crate) vls_keys_manager: Option<Arc<crate::vls::client::VlsKeysManager>>,
     pub(crate) router: Arc<Router>,
     pub(crate) output_sweeper: Arc<OutputSweeper>,
     pub(crate) rgb_send_lock: Arc<Mutex<bool>>,
@@ -422,6 +426,10 @@ pub(crate) async fn start_daemon(args: &LdkUserInfo) -> Result<Arc<AppState>, Ap
         ldk_data_dir,
         logger,
         max_media_upload_size_mb: args.max_media_upload_size_mb,
+        enable_vls: args.enable_vls,
+        vls_port: args.vls_port,
+        bitcoin_rpc_url: args.bitcoin_rpc_url.clone(),
+        vls_sweep_address: args.vls_sweep_address.clone(),
     });
 
     Ok(Arc::new(AppState {

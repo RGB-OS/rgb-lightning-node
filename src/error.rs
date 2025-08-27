@@ -282,7 +282,11 @@ pub enum APIError {
     #[error("Transport type is not supported")]
     UnsupportedTransportType,
 
+    #[error("Invalid URL: {0}")]
+    InvalidUrl(String),
 
+    #[error("Failed keys manager operation: {0}")]
+    FailedKeysManagerOperation(String),
 
     #[error("The provided password is incorrect")]
     WrongPassword,
@@ -476,8 +480,9 @@ impl IntoResponse for APIError {
             | APIError::UnknownTemporaryChannelId
             | APIError::UnlockedNode
             | APIError::UnsupportedLayer1(_)
-
-            | APIError::UnsupportedTransportType => {
+            | APIError::UnsupportedTransportType
+            | APIError::InvalidUrl(_)
+            | APIError::FailedKeysManagerOperation(_) => {
                 (StatusCode::FORBIDDEN, self.to_string(), self.name())
             }
             APIError::Network(_) | APIError::NoValidTransportEndpoint => (

@@ -26,3 +26,36 @@ services:
     image: ghcr.io/rgb-tools/rgb-proxy-server:0.3.0
     ports:
       - 3000:3000
+  # VLS service commented out - will run RGB Lightning Node with built-in VLS gRPC server
+  # vls:
+  #   image: ghcr.io/lightningdevkit/vls:latest
+  #   command: ["vlsd", "--network", "regtest", "--grpc-port", "7701", "--grpc-host", "0.0.0.0"]
+  #   ports:
+  #     - 7701:7701
+  #   volumes:
+  #     - ./datavls:/app/data
+  #   depends_on:
+  #     - bitcoind
+  rgb-lightning-node:
+    image: rgb-lightning-node:latest
+    command: [
+      "/app/data", 
+      "--daemon-listening-port", "3001",
+      "--ldk-peer-listening-port", "9735", 
+      "--network", "regtest",
+      "--enable-vls",
+      "--vls-port", "7701",
+      "--bitcoin-rpc-url", "http://user:password@bitcoind:18443"
+    ]
+    ports:
+      - 3001:3001
+      - 9735:9735
+      - 7701:7701
+    volumes:
+      - ./dataldk0:/app/data
+    depends_on:
+      - bitcoind
+      - electrs
+      - proxy
+    environment:
+      - RUST_LOG=debug
