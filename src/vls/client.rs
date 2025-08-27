@@ -66,10 +66,10 @@ impl GrpcTransport {
         client_id: Option<ClientId>,
     ) -> ClientResult<Vec<u8>> {
         let join = handle.spawn_blocking(move || {
-            Handle::current().block_on(Self::do_call_async(sender, message, client_id)).unwrap()
+            Handle::current().block_on(Self::do_call_async(sender, message, client_id))
         });
-        let result = task::block_in_place(|| handle.block_on(join)).expect("join");
-        Ok(result)
+        let result = task::block_in_place(|| handle.block_on(join)).map_err(|_| Error::Transport)?;
+        result
     }
 
     async fn do_call_async(
