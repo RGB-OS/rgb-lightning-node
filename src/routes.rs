@@ -907,6 +907,7 @@ pub(crate) struct RgbInvoiceRequest {
     pub(crate) asset_id: Option<String>,
     pub(crate) duration_seconds: Option<u32>,
     pub(crate) min_confirmations: u8,
+    pub(crate) witness: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -1175,24 +1176,24 @@ impl AppState {
 
     async fn check_locked(
         &self,
-    ) -> Result<TokioMutexGuard<Option<Arc<UnlockedAppState>>>, APIError> {
+    ) -> Result<TokioMutexGuard<'_, Option<Arc<UnlockedAppState>>>, APIError> {
+        self.check_changing_state()?;
         let unlocked_app_state = self.get_unlocked_app_state().await;
         if unlocked_app_state.is_some() {
             Err(APIError::UnlockedNode)
         } else {
-            self.check_changing_state()?;
             Ok(unlocked_app_state)
         }
     }
 
     async fn check_unlocked(
         &self,
-    ) -> Result<TokioMutexGuard<Option<Arc<UnlockedAppState>>>, APIError> {
+    ) -> Result<TokioMutexGuard<'_, Option<Arc<UnlockedAppState>>>, APIError> {
+        self.check_changing_state()?;
         let unlocked_app_state = self.get_unlocked_app_state().await;
         if unlocked_app_state.is_none() {
             Err(APIError::LockedNode)
         } else {
-            self.check_changing_state()?;
             Ok(unlocked_app_state)
         }
     }
@@ -3204,12 +3205,21 @@ pub(crate) async fn rgb_invoice(
             return Err(APIError::OpenChannelInProgress);
         }
 
-        let receive_data = unlocked_state.rgb_blind_receive(
-            payload.asset_id,
-            payload.duration_seconds,
-            vec![unlocked_state.proxy_endpoint.clone()],
-            payload.min_confirmations,
-        )?;
+        let receive_data = if payload.witness {
+            unlocked_state.rgb_witness_receive(
+                payload.asset_id,
+                payload.duration_seconds,
+                vec![unlocked_state.proxy_endpoint.clone()],
+                payload.min_confirmations,
+            )?
+        } else {
+            unlocked_state.rgb_blind_receive(
+                payload.asset_id,
+                payload.duration_seconds,
+                vec![unlocked_state.proxy_endpoint.clone()],
+                payload.min_confirmations,
+            )?
+        };
 
         Ok(Json(RgbInvoiceResponse {
             recipient_id: receive_data.recipient_id,
