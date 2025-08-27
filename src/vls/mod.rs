@@ -6,6 +6,11 @@
 #[cfg(feature = "vls")]
 pub mod client;
 
+#[cfg(feature = "vls")]
+pub mod handshake;
+
+
+
 #[cfg(not(feature = "vls"))]
 pub mod client {
     //! VLS client stub when feature is disabled
@@ -43,6 +48,12 @@ pub mod client {
     ) -> Result<Arc<VlsKeysManager>, VlsError> {
         Err(VlsError { message: "VLS feature not enabled".to_string() })
     }
+}
+
+#[cfg(not(feature = "vls"))]
+pub mod handshake {
+    //! VLS handshake stub when feature is disabled
+    pub struct HandshakeHandler;
 }
 
 /// VLS gRPC endpoint status check

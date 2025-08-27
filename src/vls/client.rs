@@ -14,6 +14,8 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 use tokio::task;
 use url::Url;
+use async_trait::async_trait;
+
 
 // VLS imports - using correct module paths from your VLS fork
 use vls_proxy::grpc::adapter::{ChannelRequest, ClientId, HsmdService};
@@ -25,10 +27,11 @@ use vls_proxy::vls_frontend::Frontend;
 use vls_proxy::vls_protocol_client::{ClientResult, Error, KeysManagerClient, SignerPort, Transport};
 use vls_proxy::vls_protocol_signer::vls_protocol::model::PubKey;
 use vls_proxy::vls_protocol_signer::vls_protocol::serde_bolt::{Array, WireString};
+use vls_proxy::vls_protocol_signer::vls_protocol::msgs;
 use lightning_signer::signer::derive::KeyDerivationStyle;
 
-// Import Shutter from parent module
-use super::Shutter;
+// Import Shutter and handshake handler from parent module
+use super::{Shutter, handshake::HandshakeHandler};
 
 
 /// VLS Error type
@@ -68,7 +71,11 @@ impl GrpcTransport {
         let join = handle.spawn_blocking(move || {
             Handle::current().block_on(Self::do_call_async(sender, message, client_id))
         });
-        let result = task::block_in_place(|| handle.block_on(join)).map_err(|_| Error::Transport)?;
+        let result = task::block_in_place(|| handle.block_on(join))
+            .map_err(|e| {
+                tracing::error!("Failed to join transport task: {}", e);
+                Error::Transport
+            })?;
         result
     }
 
@@ -84,8 +91,14 @@ impl GrpcTransport {
         let request = ChannelRequest { client_id, message, reply_tx };
 
         // This can fail if gRPC adapter shut down
-        sender.send(request).await.map_err(|_| Error::Transport)?;
-        let reply = reply_rx.await.map_err(|_| Error::Transport)?;
+        sender.send(request).await.map_err(|e| {
+            tracing::error!("Failed to send request to gRPC adapter: {}", e);
+            Error::Transport
+        })?;
+        let reply = reply_rx.await.map_err(|e| {
+            tracing::error!("Failed to receive reply from gRPC adapter: {}", e);
+            Error::Transport
+        })?;
         Ok(reply.reply)
     }
 }
@@ -110,16 +123,55 @@ pub struct VlsKeysManager {
 /// Transport wrapper for SignerPort - bridges VLS transport to signer interface
 struct TransportSignerPort {
     transport: Arc<dyn Transport>,
+    handshake_handler: Arc<HandshakeHandler>,
 }
 
 #[async_trait::async_trait]
 impl SignerPort for TransportSignerPort {
     async fn handle_message(&self, message: Vec<u8>) -> ClientResult<Vec<u8>> {
-        self.transport.node_call(message)
+        // Check if this is a handshake message
+        if let Ok(parsed_msg) = msgs::from_vec(message.clone()) {
+            match parsed_msg {
+                msgs::Message::HsmdDevPreinit(_) | msgs::Message::HsmdInit2(_) => {
+                    tracing::debug!("Routing handshake message to HandshakeHandler");
+                    
+                    // Create a oneshot channel for the reply
+                    let (reply_tx, reply_rx) = oneshot::channel();
+                    
+                    // Handle the handshake message
+                    if let Err(e) = self.handshake_handler.handle_handshake_message(message, reply_tx).await {
+                        tracing::error!("Handshake failed: {}", e);
+                        return Err(Error::Transport);
+                    }
+                    
+                    // Wait for the reply
+                    match reply_rx.await {
+                        Ok(channel_reply) => Ok(channel_reply.reply),
+                        Err(_) => {
+                            tracing::error!("Failed to receive handshake reply");
+                            Err(Error::Transport)
+                        }
+                    }
+                }
+                _ => {
+                    // Regular signing message - ensure handshake is complete
+                    if !self.handshake_handler.is_ready() {
+                        tracing::error!("Received signing request before handshake complete");
+                        return Err(Error::Transport);
+                    }
+                    
+                    // Forward to transport for signing
+                    self.transport.node_call(message)
+                }
+            }
+        } else {
+            tracing::error!("Failed to parse VLS message");
+            Err(Error::Transport)
+        }
     }
 
     fn is_ready(&self) -> bool {
-        true
+        self.handshake_handler.is_ready()
     }
 }
 
@@ -140,6 +192,8 @@ pub async fn make_grpc_signer(
     tracing::info!("🔐 Setting up VLS gRPC endpoint with HsmdService");
     tracing::info!("   📍 Endpoint: {}:{}", addr.ip(), addr.port());
     tracing::info!("   🌐 Network: {}", network);
+    tracing::info!("   🔧 VLS Fork: gitlab.com/dablanahuber/validating-lightning-signer.git@36ad8506");
+    tracing::warn!("   ⚠️  Ensure external VLS daemon is compatible with this protocol version");
     
     // Create TCP incoming connection handler for VLS to connect to
     let incoming = TcpIncoming::new(addr, false).await
@@ -164,15 +218,22 @@ pub async fn make_grpc_signer(
         signer_handle
             .spawn(GrpcTransport::new(sender))
             .await
-            .expect("join")
-            .expect("gRPC transport init"),
+            .map_err(|e| VlsError { message: format!("Failed to join GrpcTransport task: {}", e) })?
+            .map_err(|e| VlsError { message: format!("Failed to initialize gRPC transport: {:?}", e) })?,
     );
 
     // Create source factory for VLS data management
     let source_factory = Arc::new(DummySourceFactory::new(ldk_data_dir.clone(), network));
     
+    // Create handshake handler for VLS protocol initialization
+    let dev_allowlist = vec![sweep_address.to_string()];
+    let handshake_handler = Arc::new(HandshakeHandler::new(network, dev_allowlist));
+    
     // Create signer port that bridges transport to VLS protocol
-    let signer_port = Arc::new(TransportSignerPort { transport: transport.clone() });
+    let signer_port = Arc::new(TransportSignerPort { 
+        transport: transport.clone(),
+        handshake_handler: handshake_handler.clone(),
+    });
     
     // Create frontend for VLS integration
     let frontend = Frontend::new(
@@ -184,6 +245,33 @@ pub async fn make_grpc_signer(
 
     // Create development allowlist for sweep address
     let dev_allowlist = Array(vec![WireString(sweep_address.clone().to_string().into_bytes())]);
+    
+    // Send HsmdDevPreinit message explicitly like lnrod does
+    use vls_proxy::vls_protocol_signer::vls_protocol::msgs::{HsmdDevPreinit, HsmdDevPreinitReply, SerBolt};
+    
+    let preinit_message = HsmdDevPreinit {
+        derivation_style: KeyDerivationStyle::Ldk as u8,
+        network_name: WireString(network.to_string().into_bytes()),
+        seed: None,
+        allowlist: dev_allowlist.clone(),
+    };
+    
+    tracing::info!("Sending HsmdDevPreinit message to VLS");
+    tracing::debug!("HsmdDevPreinit message bytes: {}", preinit_message.as_vec().len());
+    let _preinit_reply: HsmdDevPreinitReply = transport.node_call(preinit_message.as_vec())
+        .and_then(|reply_bytes| {
+            msgs::from_vec(reply_bytes).map_err(|_e| Error::Transport)
+        })
+        .and_then(|msg| {
+            if let msgs::Message::HsmdDevPreinitReply(reply) = msg {
+                Ok(reply)
+            } else {
+                Err(Error::Transport)
+            }
+        })
+        .map_err(|_| VlsError { message: "HsmdDevPreinit failed".to_string() })?;
+    
+    tracing::info!("HsmdDevPreinit completed successfully");
     
     // Create KeysManagerClient for VLS protocol communication
     let client = KeysManagerClient::new(
@@ -199,8 +287,16 @@ pub async fn make_grpc_signer(
 
     // Get node ID from VLS and persist it
     use lightning_signer::lightning::sign::{NodeSigner, Recipient};
+    tracing::info!("   🔗 Attempting to get node ID from VLS daemon...");
     let node_id = client.get_node_id(Recipient::Node)
-        .map_err(|e| VlsError { message: format!("Failed to get node ID from VLS: {:?}", e) })?;
+        .map_err(|e| {
+            tracing::error!("Failed to get node ID from VLS daemon. This may indicate:");
+            tracing::error!("  - VLS daemon is not running or not connected");
+            tracing::error!("  - Protocol version mismatch between node and VLS");
+            tracing::error!("  - Network connectivity issues");
+            tracing::error!("  - VLS daemon error: {:?}", e);
+            VlsError { message: format!("Failed to get node ID from VLS: {:?}", e) }
+        })?;
     
     fs::write(&node_id_path, node_id.to_string())
         .map_err(|e| VlsError { message: format!("Failed to write node ID: {}", e) })?;
