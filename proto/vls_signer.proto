@@ -1,0 +1,112 @@
+syntax = "proto3";
+
+package vls_signer;
+
+// VLS Signer Service - Essential gRPC communication with VLS daemon
+service VlsSignerService {
+    // Initialize connection with VLS daemon
+    rpc Init(InitRequest) returns (InitResponse);
+    
+    // Get node ID from VLS
+    rpc GetNodeId(GetNodeIdRequest) returns (GetNodeIdResponse);
+    
+    // Sign invoice
+    rpc SignInvoice(SignInvoiceRequest) returns (SignInvoiceResponse);
+    
+    // Sign PSBT
+    rpc SignPsbt(SignPsbtRequest) returns (SignPsbtResponse);
+    
+    // Sign channel commitment
+    rpc SignCommitment(SignCommitmentRequest) returns (SignCommitmentResponse);
+    
+    // Validate counterparty revocation
+    rpc ValidateRevocation(ValidateRevocationRequest) returns (ValidateRevocationResponse);
+    
+    // Health check / ping
+    rpc Ping(PingRequest) returns (PingResponse);
+}
+
+// Initialization
+message InitRequest {
+    string network = 1;
+    string node_config = 2;
+    bytes entropy = 3;
+}
+
+message InitResponse {
+    bool success = 1;
+    string error_message = 2;
+    bytes node_id = 3;
+}
+
+// Node ID retrieval
+message GetNodeIdRequest {
+    string recipient = 1; // "node" or other recipient type
+}
+
+message GetNodeIdResponse {
+    bytes node_id = 1;
+    string error_message = 2;
+}
+
+// Invoice signing
+message SignInvoiceRequest {
+    bytes invoice_bytes = 1;
+    string recipient = 2;
+}
+
+message SignInvoiceResponse {
+    bytes signature = 1;
+    string error_message = 2;
+}
+
+// PSBT signing
+message SignPsbtRequest {
+    bytes psbt_bytes = 1;
+    repeated SpendableOutput outputs = 2;
+}
+
+message SignPsbtResponse {
+    bytes signed_psbt = 1;
+    string error_message = 2;
+}
+
+message SpendableOutput {
+    bytes descriptor = 1;
+    uint64 value_satoshis = 2;
+    bytes script = 3;
+}
+
+// Channel commitment signing
+message SignCommitmentRequest {
+    bytes commitment_tx = 1;
+    uint64 commitment_number = 2;
+    bytes per_commitment_point = 3;
+}
+
+message SignCommitmentResponse {
+    bytes signature = 1;
+    string error_message = 2;
+}
+
+// Revocation validation
+message ValidateRevocationRequest {
+    uint64 commitment_number = 1;
+    bytes revocation_secret = 2;
+}
+
+message ValidateRevocationResponse {
+    bool valid = 1;
+    string error_message = 2;
+}
+
+// Health check
+message PingRequest {
+    string message = 1;
+}
+
+message PingResponse {
+    string message = 1;
+    int64 timestamp = 2;
+}
+

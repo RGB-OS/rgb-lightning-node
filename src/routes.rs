@@ -59,8 +59,10 @@ use rgb_lib::{
     },
     AssetSchema as RgbLibAssetSchema, Assignment as RgbLibAssignment,
     BitcoinNetwork as RgbLibNetwork, ContractId, RgbTransport,
+    wallet::{WalletData, DatabaseType, Wallet},
 };
 use serde::{Deserialize, Serialize};
+use serde_json;
 use std::{
     collections::HashMap,
     net::ToSocketAddrs,
@@ -75,12 +77,14 @@ use tokio::{
     sync::MutexGuard as TokioMutexGuard,
 };
 
-use crate::ldk::{start_ldk, stop_ldk, LdkBackgroundServices, MIN_CHANNEL_CONFIRMATIONS};
+use crate::ldk::{start_ldk, stop_ldk, LdkBackgroundServices, WalletInitData, MIN_CHANNEL_CONFIRMATIONS};
 use crate::swap::{SwapData, SwapInfo, SwapString};
 use crate::utils::{
     check_already_initialized, check_channel_id, check_password_strength, check_password_validity,
-    encrypt_and_save_mnemonic, get_max_local_rgb_amount, get_mnemonic_path, get_route, hex_str,
-    hex_str_to_compressed_pubkey, hex_str_to_vec, UnlockedAppState, UserOnionMessageContents,
+    check_password_validity_keys, encrypt_and_save_keys, encrypt_and_save_mnemonic, 
+    generate_ldk_seed_from_read_mode_data, get_keys_path, get_max_local_rgb_amount, get_mnemonic_path, 
+    get_route, hex_str, hex_str_to_compressed_pubkey, hex_str_to_vec, is_read_mode, 
+    UnlockedAppState, UserOnionMessageContents,
 };
 use crate::{
     backup::{do_backup, restore_backup},
@@ -602,6 +606,32 @@ pub(crate) struct InitRequest {
 #[derive(Deserialize, Serialize)]
 pub(crate) struct InitResponse {
     pub(crate) mnemonic: String,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct InitReadModeRequest {
+    pub(crate) password: String,
+    pub(crate) xpub: String,
+    pub(crate) account_xpub_vanilla: String,
+    pub(crate) account_xpub_colored: String,
+    pub(crate) master_fingerprint: String,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct InitReadModeResponse {
+    pub(crate) xpub: String,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct CreateInvoiceRequest {
+    pub(crate) amount: u64,
+    pub(crate) asset_id: Option<String>,
+    pub(crate) password: String,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct CreateInvoiceResponse {
+    pub(crate) invoice: String,
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
@@ -1642,10 +1672,10 @@ pub(crate) async fn init(
 
         check_password_strength(payload.password.clone())?;
 
-        let mnemonic_path = get_mnemonic_path(&state.static_state.storage_dir_path);
-        check_already_initialized(&mnemonic_path)?;
+        check_already_initialized(&state.static_state.storage_dir_path)?;
 
         let keys = generate_keys(state.static_state.network);
+        let mnemonic_path = get_mnemonic_path(&state.static_state.storage_dir_path);
 
         let mnemonic = keys.mnemonic;
 
@@ -1655,6 +1685,124 @@ pub(crate) async fn init(
     })
     .await
 }
+
+pub(crate) async fn init_read_mode(
+    State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<InitReadModeRequest>, APIError>,
+) -> Result<Json<InitReadModeResponse>, APIError> {
+    no_cancel(async move {
+        let xpub = payload.xpub;
+        let account_xpub_vanilla = payload.account_xpub_vanilla;
+        let account_xpub_colored = payload.account_xpub_colored;
+        let master_fingerprint = payload.master_fingerprint;
+
+        check_password_strength(payload.password.clone())?;
+        check_already_initialized(&state.static_state.storage_dir_path)?;
+
+        // Generate LDK seed deterministically from the read mode data
+        let ldk_seed = generate_ldk_seed_from_read_mode_data(
+            &xpub,
+            &account_xpub_vanilla, 
+            &account_xpub_colored,
+            &master_fingerprint
+        );
+
+        // Create a complete keys object from individual fields
+        let keys_object = serde_json::json!({
+            "xpub": xpub,
+            "account_xpub_vanilla": account_xpub_vanilla,
+            "account_xpub_colored": account_xpub_colored,
+            "master_fingerprint": master_fingerprint,
+            "ldk_seed": ldk_seed,
+            "mnemonic": null // Not available in read mode
+        });
+        
+        // Store the whole keys object to disk like regular init does
+        let keys_path = get_keys_path(&state.static_state.storage_dir_path);
+        encrypt_and_save_keys(payload.password.clone(), keys_object.to_string(), &keys_path)?;
+        
+        // Note: read_mode_dict is maintained for backwards compatibility but 
+        // the primary source is now the encrypted disk storage
+        state.read_mode_dict.lock().unwrap().insert(payload.password.clone(), (xpub.clone(), account_xpub_vanilla, account_xpub_colored, master_fingerprint));
+
+        Ok(Json(InitReadModeResponse {xpub: xpub}))
+    })
+    .await
+}
+
+
+pub(crate) async fn create_invoice(
+    State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<CreateInvoiceRequest>, APIError>,
+) -> Result<Json<CreateInvoiceResponse>, APIError> {
+    // Load keys from disk like regular init does
+    let (account_xpub_vanilla, account_xpub_colored, master_fingerprint, storage_dir_path) = {
+        let storage_dir = &state.static_state.storage_dir_path;
+        
+        if is_read_mode(storage_dir) {
+            // Load keys from disk for read mode
+            let keys_data = check_password_validity_keys(&payload.password, storage_dir)?;
+            
+            // Parse the keys data to extract individual fields
+            let keys_json: serde_json::Value = serde_json::from_str(&keys_data)
+                .map_err(|e| APIError::FailedKeysCreation("Failed to parse keys data".to_string(), e.to_string()))?;
+            
+            let account_xpub_vanilla = keys_json["account_xpub_vanilla"].as_str().unwrap_or("").to_string();
+            let account_xpub_colored = keys_json["account_xpub_colored"].as_str().unwrap_or("").to_string();
+            let master_fingerprint = keys_json["master_fingerprint"].as_str().unwrap_or("").to_string();
+            // Note: ldk_seed is also stored but not used in create_invoice
+            
+            (account_xpub_vanilla, account_xpub_colored, master_fingerprint, storage_dir.clone())
+        } else {
+            // TODO: For regular mode, load mnemonic and derive keys (not implemented yet)
+            return Err(APIError::NotInitialized);
+        }
+    };
+
+
+    no_cancel(async move {
+        println!("account_xpub_vanilla: {}", account_xpub_vanilla);
+        println!("account_xpub_colored: {}", account_xpub_colored);
+        println!("master_fingerprint: {}", master_fingerprint);
+
+        let wallet_data = WalletData {
+            data_dir: storage_dir_path.to_string_lossy().to_string(),
+            bitcoin_network: RgbLibNetwork::Regtest,
+            database_type: DatabaseType::Sqlite,
+            max_allocations_per_utxo: 1,
+            account_xpub_vanilla,
+            account_xpub_colored,
+            master_fingerprint,
+            mnemonic: None,
+            vanilla_keychain: None,
+            supported_schemas: vec![RgbLibAssetSchema::Cfa, RgbLibAssetSchema::Nia, RgbLibAssetSchema::Uda],
+        };
+        
+        // Use spawn_blocking to avoid runtime conflicts with RGB library
+        let result = tokio::task::spawn_blocking(move || {
+            let wallet = Wallet::new(wallet_data).map_err(|e| format!("Failed to create wallet: {}", e))?;
+            let invoice = wallet.blind_receive(payload.asset_id, RgbLibAssignment::Any, None, vec![], 0)
+                .map_err(|e| format!("Failed to create invoice: {}", e))?;
+            Ok::<String, String>(invoice.invoice)
+        }).await;
+
+        match result {
+            Ok(Ok(invoice)) => Ok(Json(CreateInvoiceResponse { invoice })),
+            Ok(Err(error_msg)) => {
+                tracing::error!("RGB wallet error: {}", error_msg);
+                Err(APIError::FailedInvoiceCreation(error_msg))
+            },
+            Err(join_error) => {
+                tracing::error!("Task join error: {}", join_error);
+                Err(APIError::Unexpected(format!("Task execution failed: {}", join_error)))
+            }
+        }
+    })
+    .await
+}
+
+
+
 
 pub(crate) async fn invoice_status(
     State(state): State<Arc<AppState>>,
@@ -3612,20 +3760,57 @@ pub(crate) async fn unlock(
             }
         }
 
-        let mnemonic = match check_password_validity(
-            &payload.password,
-            &state.static_state.storage_dir_path,
-        ) {
-            Ok(mnemonic) => mnemonic,
-            Err(e) => {
-                state.update_changing_state(false);
-                return Err(e);
+        // Determine wallet initialization data based on mode
+        let wallet_init_data = if is_read_mode(&state.static_state.storage_dir_path) {
+            // Read mode: load stored keys object
+            let keys_data = match check_password_validity_keys(
+                &payload.password,
+                &state.static_state.storage_dir_path,
+            ) {
+                Ok(keys_data) => keys_data,
+                Err(e) => {
+                    state.update_changing_state(false);
+                    return Err(e);
+                }
+            };
+
+            // Parse keys object
+            let keys_json: serde_json::Value = match serde_json::from_str(&keys_data) {
+                Ok(json) => json,
+                Err(e) => {
+                    state.update_changing_state(false);
+                    return Err(APIError::FailedKeysCreation(
+                        "Failed to parse stored keys".to_string(),
+                        e.to_string()
+                    ));
+                }
+            };
+
+            WalletInitData::ReadMode {
+                account_xpub_vanilla: keys_json["account_xpub_vanilla"].as_str().unwrap_or("").to_string(),
+                account_xpub_colored: keys_json["account_xpub_colored"].as_str().unwrap_or("").to_string(),
+                master_fingerprint: keys_json["master_fingerprint"].as_str().unwrap_or("").to_string(),
+                xpub: keys_json["xpub"].as_str().unwrap_or("").to_string(),
+                ldk_seed: keys_json["ldk_seed"].as_str().unwrap_or("").to_string(),
             }
+        } else {
+            // Regular mode: load mnemonic
+            let mnemonic = match check_password_validity(
+                &payload.password,
+                &state.static_state.storage_dir_path,
+            ) {
+                Ok(mnemonic) => mnemonic,
+                Err(e) => {
+                    state.update_changing_state(false);
+                    return Err(e);
+                }
+            };
+            WalletInitData::Mnemonic(mnemonic)
         };
 
         tracing::debug!("Starting LDK...");
         let (new_ldk_background_services, new_unlocked_app_state) =
-            match start_ldk(state.clone(), mnemonic, payload).await {
+            match start_ldk(state.clone(), wallet_init_data, payload).await {
                 Ok((nlbs, nuap)) => (nlbs, nuap),
                 Err(e) => {
                     state.update_changing_state(false);

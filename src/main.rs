@@ -6,8 +6,10 @@ mod error;
 mod ldk;
 mod rgb;
 mod routes;
+
 mod swap;
 mod utils;
+mod vls;
 
 #[cfg(test)]
 mod test;
@@ -47,7 +49,7 @@ use crate::routes::{
     list_peers, list_swaps, list_transactions, list_transfers, list_unspents, ln_invoice, lock,
     maker_execute, maker_init, network_info, node_info, open_channel, post_asset_media,
     refresh_transfers, restore, rgb_invoice, send_asset, send_btc, send_onion_message,
-    send_payment, shutdown, sign_message, sync, taker, unlock,
+    send_payment, shutdown, sign_message, sync, taker, unlock, init_read_mode, create_invoice,
 };
 use crate::utils::{start_daemon, AppState, LOGS_DIR};
 
@@ -122,6 +124,8 @@ pub(crate) async fn app(args: LdkUserInfo) -> Result<(Router, Arc<AppState>), Ap
         .route("/getpayment", post(get_payment))
         .route("/getswap", post(get_swap))
         .route("/init", post(init))
+        .route("/createinvoice", post(create_invoice))
+        .route( "/init_read_mode", post(init_read_mode))
         .route("/invoicestatus", post(invoice_status))
         .route("/issueassetcfa", post(issue_asset_cfa))
         .route("/issueassetnia", post(issue_asset_nia))

@@ -42,7 +42,7 @@ serde = { version = "^1.0", features = ["derive"] }
 serde_json = "1.0"
 tempfile = "3.14.0"
 thiserror = "2.0"
-time = { version = "0.3.36", features = ["std"] }
+time = { version = "0.3.41", features = ["std"] }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "rt", "rt-multi-thread", "signal", "sync", "net", "time"] }
 tokio-util = { version = "0.7.12", features = ["codec"] }
 tower-http = { version = "0.6.1", features = ["cors", "limit", "trace"] }
@@ -53,6 +53,16 @@ typenum = "1.17.0"
 uuid = { version = "1.11.0", default-features = false, features = ["v4"] }
 walkdir = "2.5.0"
 zip = { version = "2.2.0", default-features = false, features = ["time", "zstd"] }
+
+# VLS gRPC communication dependencies (no VLS crates needed)
+tonic = { version = "0.12", features = ["transport"] }
+prost = "0.13"
+tokio-stream = "0.1"
+url = "2.5"
+getrandom = "0.2"
+
+[build-dependencies]
+tonic-build = "0.12"
 
 [dev-dependencies]
 dircmp = "0.2.0"
@@ -66,6 +76,27 @@ tracing-test = "0.2.5"
 [patch.crates-io]
 lightning = { path = "./rust-lightning/lightning" }
 lightning-background-processor = { path = "./rust-lightning/lightning-background-processor"}
+
+
+
+
+[dependencies.vls-core]
+features = ["std"]
+git = "ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git"
+rev = "36ad8506"
+# path = "../vls/vls-core"
+
+[dependencies.vls-persist]
+features = ["redb-kvv"]
+git = "ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git"
+rev = "36ad8506"
+# path = "../vls/vls-persist"
+
+[dependencies.vls-proxy]
+features = ["developer"]
+git = "ssh://git@gitlab.com:22/dablanahuber/validating-lightning-signer.git"
+rev = "36ad8506"
+# path = "../vls/vls-proxy"
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

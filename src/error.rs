@@ -282,6 +282,8 @@ pub enum APIError {
     #[error("Transport type is not supported")]
     UnsupportedTransportType,
 
+
+
     #[error("The provided password is incorrect")]
     WrongPassword,
 }
@@ -391,7 +393,8 @@ impl IntoResponse for APIError {
             | APIError::FailedPeerDisconnection(_)
             | APIError::FailedSendingOnionMessage(_)
             | APIError::IO(_)
-            | APIError::Unexpected(_) => (
+            | APIError::Unexpected(_)
+            => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 self.to_string(),
                 self.name(),
@@ -473,6 +476,7 @@ impl IntoResponse for APIError {
             | APIError::UnknownTemporaryChannelId
             | APIError::UnlockedNode
             | APIError::UnsupportedLayer1(_)
+
             | APIError::UnsupportedTransportType => {
                 (StatusCode::FORBIDDEN, self.to_string(), self.name())
             }

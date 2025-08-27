@@ -1,4 +1,5 @@
 use amplify::s;
+use bitcoin::hashes::{sha256, Hash};
 use bitcoin::io;
 use bitcoin::secp256k1::PublicKey;
 use futures::Future;
@@ -17,6 +18,7 @@ use lightning_persister::fs_store::FilesystemStore;
 use magic_crypt::{new_magic_crypt, MagicCryptTrait};
 use rgb_lib::{bdk_wallet::keys::bip39::Mnemonic, BitcoinNetwork, ContractId};
 use std::{
+    collections::HashMap,
     fmt::Write,
     fs,
     net::{SocketAddr, TcpStream, ToSocketAddrs},
@@ -30,6 +32,8 @@ use tokio::sync::{Mutex as TokioMutex, MutexGuard as TokioMutexGuard};
 use tokio_util::sync::CancellationToken;
 
 use crate::ldk::{ChannelIdsMap, Router};
+
+
 use crate::rgb::{get_rgb_channel_info_optional, RgbLibWalletWrapper};
 use crate::routes::{DEFAULT_FINAL_CLTV_EXPIRY_DELTA, HTLC_MIN_MSAT};
 use crate::{
@@ -42,6 +46,9 @@ use crate::{
         OutputSweeper, PeerManager, SwapMap,
     },
 };
+
+
+
 
 pub(crate) const LDK_DIR: &str = ".ldk";
 pub(crate) const LOGS_DIR: &str = "logs";
@@ -59,6 +66,7 @@ pub(crate) struct AppState {
     pub(crate) unlocked_app_state: Arc<TokioMutex<Option<Arc<UnlockedAppState>>>>,
     pub(crate) ldk_background_services: Arc<Mutex<Option<LdkBackgroundServices>>>,
     pub(crate) changing_state: Mutex<bool>,
+    pub(crate) read_mode_dict: Mutex<HashMap<String, (String, String, String, String)>>,
 }
 
 impl AppState {
@@ -100,6 +108,7 @@ pub(crate) struct UnlockedAppState {
     pub(crate) maker_swaps: Arc<Mutex<SwapMap>>,
     pub(crate) taker_swaps: Arc<Mutex<SwapMap>>,
     pub(crate) rgb_wallet_wrapper: Arc<RgbLibWalletWrapper>,
+    pub(crate) vls_client: Option<Arc<crate::vls::client::VlsClient>>,
     pub(crate) router: Arc<Router>,
     pub(crate) output_sweeper: Arc<OutputSweeper>,
     pub(crate) rgb_send_lock: Arc<Mutex<bool>>,
@@ -150,8 +159,10 @@ impl Writeable for UserOnionMessageContents {
     }
 }
 
-pub(crate) fn check_already_initialized(mnemonic_path: &Path) -> Result<(), APIError> {
-    if mnemonic_path.exists() {
+pub(crate) fn check_already_initialized(storage_dir_path: &Path) -> Result<(), APIError> {
+    let mnemonic_path = get_mnemonic_path(storage_dir_path);
+    let keys_path = get_keys_path(storage_dir_path);
+    if mnemonic_path.exists() || keys_path.exists() {
         return Err(APIError::AlreadyInitialized);
     }
     Ok(())
@@ -182,6 +193,41 @@ pub(crate) fn check_password_validity(
     }
 }
 
+pub(crate) fn check_password_validity_keys(
+    password: &str,
+    storage_dir_path: &Path,
+) -> Result<String, APIError> {
+    let keys_path = get_keys_path(storage_dir_path);
+    if let Ok(encrypted_keys) = fs::read_to_string(keys_path) {
+        let mcrypt = new_magic_crypt!(password, 256);
+        let keys_str = mcrypt
+            .decrypt_base64_to_string(encrypted_keys)
+            .map_err(|_| APIError::WrongPassword)?;
+        Ok(keys_str)
+    } else {
+        Err(APIError::NotInitialized)
+    }
+}
+
+pub(crate) fn is_read_mode(storage_dir_path: &Path) -> bool {
+    get_keys_path(storage_dir_path).exists()
+}
+
+pub(crate) fn generate_ldk_seed_from_read_mode_data(
+    xpub: &str,
+    account_xpub_vanilla: &str, 
+    account_xpub_colored: &str,
+    master_fingerprint: &str,
+) -> String {
+    // Create a deterministic seed by hashing the combination of all read mode fields
+    // This ensures the same LDK seed is generated every time for the same wallet data
+    let combined_data = format!("LDK_SEED_SALT:{}:{}:{}:{}", 
+        xpub, account_xpub_vanilla, account_xpub_colored, master_fingerprint);
+    
+    let hash = sha256::Hash::hash(combined_data.as_bytes());
+    hex_str(hash.as_byte_array())
+}
+
 pub(crate) fn check_channel_id(channel_id_str: &str) -> Result<ChannelId, APIError> {
     if let Some(channel_id_bytes) = hex_str_to_vec(channel_id_str) {
         if channel_id_bytes.len() != 32 {
@@ -204,12 +250,16 @@ pub(crate) fn get_mnemonic_path(storage_dir_path: &Path) -> PathBuf {
     storage_dir_path.join("mnemonic")
 }
 
+pub(crate) fn get_keys_path(storage_dir_path: &Path) -> PathBuf {
+    storage_dir_path.join("keys")
+}
+
 pub(crate) fn encrypt_and_save_mnemonic(
     password: String,
     mnemonic: String,
     mnemonic_path: &Path,
 ) -> Result<(), APIError> {
-    let mcrypt = new_magic_crypt!(password, 256);
+    let mcrypt: magic_crypt::MagicCrypt256 = new_magic_crypt!(password, 256);
     let encrypted_mnemonic = mcrypt.encrypt_str_to_base64(mnemonic);
     match fs::write(mnemonic_path, encrypted_mnemonic) {
         Ok(()) => {
@@ -218,6 +268,25 @@ pub(crate) fn encrypt_and_save_mnemonic(
         }
         Err(e) => Err(APIError::FailedKeysCreation(
             mnemonic_path.to_string_lossy().to_string(),
+            e.to_string(),
+        )),
+    }
+}
+
+pub(crate) fn encrypt_and_save_keys(
+    password: String,
+    keys_data: String,
+    keys_path: &Path,
+) -> Result<(), APIError> {
+    let mcrypt: magic_crypt::MagicCrypt256 = new_magic_crypt!(password, 256);
+    let encrypted_keys = mcrypt.encrypt_str_to_base64(keys_data);
+    match fs::write(keys_path, encrypted_keys) {
+        Ok(()) => {
+            tracing::info!("Created a new read-mode wallet");
+            Ok(())
+        }
+        Err(e) => Err(APIError::FailedKeysCreation(
+            keys_path.to_string_lossy().to_string(),
             e.to_string(),
         )),
     }
@@ -361,6 +430,7 @@ pub(crate) async fn start_daemon(args: &LdkUserInfo) -> Result<Arc<AppState>, Ap
         unlocked_app_state: Arc::new(TokioMutex::new(None)),
         ldk_background_services: Arc::new(Mutex::new(None)),
         changing_state: Mutex::new(false),
+        read_mode_dict: Mutex::new(HashMap::new()),
     }))
 }
 

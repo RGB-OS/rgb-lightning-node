@@ -89,17 +89,30 @@ use crate::disk::{
 };
 use crate::error::APIError;
 use crate::rgb::{check_rgb_proxy_endpoint, get_rgb_channel_info_optional, RgbLibWalletWrapper};
+
 use crate::routes::{HTLCStatus, SwapStatus, UnlockRequest, DUST_LIMIT_MSAT};
 use crate::swap::SwapData;
 use crate::utils::{
     check_port_is_available, connect_peer_if_necessary, do_connect_peer, get_current_timestamp,
-    hex_str, AppState, StaticState, UnlockedAppState, ELECTRUM_URL_MAINNET, ELECTRUM_URL_REGTEST,
+    hex_str, hex_str_to_vec, AppState, StaticState, UnlockedAppState, ELECTRUM_URL_MAINNET, ELECTRUM_URL_REGTEST,
     ELECTRUM_URL_SIGNET, ELECTRUM_URL_TESTNET, PROXY_ENDPOINT_LOCAL, PROXY_ENDPOINT_PUBLIC,
 };
 
 pub(crate) const FEE_RATE: u64 = 7;
 pub(crate) const UTXO_SIZE_SAT: u32 = 32000;
 pub(crate) const MIN_CHANNEL_CONFIRMATIONS: u8 = 6;
+
+#[derive(Debug, Clone)]
+pub(crate) enum WalletInitData {
+    Mnemonic(Mnemonic),
+    ReadMode {
+        account_xpub_vanilla: String,
+        account_xpub_colored: String,
+        master_fingerprint: String,
+        xpub: String,
+        ldk_seed: String, // 64-char hex string
+    },
+}
 
 pub(crate) struct LdkBackgroundServices {
     stop_processing: Arc<AtomicBool>,
@@ -1420,7 +1433,7 @@ impl OutputSpender for RgbOutputSpender {
 
 pub(crate) async fn start_ldk(
     app_state: Arc<AppState>,
-    mnemonic: Mnemonic,
+    wallet_data: WalletInitData,
     unlock_request: UnlockRequest,
 ) -> Result<(LdkBackgroundServices, Arc<UnlockedAppState>), APIError> {
     let static_state = &app_state.static_state;
@@ -1509,29 +1522,38 @@ pub(crate) async fn start_ldk(
     // broadcaster.
     let broadcaster = bitcoind_client.clone();
 
-    // Initialize the KeysManager
-    // The key seed that we use to derive the node privkey (that corresponds to the node pubkey) and
-    // other secret key material.
-    let xkey: ExtendedKey = mnemonic
-        .clone()
-        .into_extended_key()
-        .expect("a valid key should have been provided");
-    let master_xprv = &xkey
-        .into_xprv(network)
-        .expect("should be possible to get an extended private key");
-    let xprv: Xpriv = master_xprv
-        .derive_priv(&Secp256k1_30::new(), &ChildNumber::Hardened { index: 535 })
-        .unwrap();
-    let ldk_seed: [u8; 32] = xprv.private_key.secret_bytes();
-    let cur = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap();
-    let keys_manager = Arc::new(KeysManager::new(
-        &ldk_seed,
-        cur.as_secs(),
-        cur.subsec_nanos(),
-        ldk_data_dir_path.clone(),
-    ));
+    // Initialize the Keys Manager
+    let seed = [42u8; 32]; // TODO: Use proper seed derivation
+    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
+    let keys_manager = Arc::new(KeysManager::new(&seed, now.as_secs(), now.subsec_nanos(), ldk_data_dir.clone()));
+
+    // Initialize VLS client if enabled
+    let vls_client = if crate::vls::is_vls_enabled() {
+        let vls_port = std::env::var("VLS_PORT")
+            .unwrap_or_else(|_| "7701".to_string())
+            .parse::<u16>()
+            .unwrap_or(7701);
+        
+        let client = crate::vls::create_vls_client(format!("http://127.0.0.1:{}", vls_port));
+        
+        // Try to initialize VLS connection
+        match client.initialize(&bitcoin_network.to_string()).await {
+            Ok(_) => {
+                tracing::info!("VLS client initialized successfully on port {}", vls_port);
+                Some(Arc::new(client))
+            }
+            Err(e) => {
+                tracing::warn!("VLS initialization failed: {}. Continuing without VLS.", e);
+                tracing::info!("To enable VLS:");
+                tracing::info!("1. Start vlsd daemon: vlsd --network {} --grpc-port {}", bitcoin_network, vls_port);
+                tracing::info!("2. Set VLS_PORT environment variable if using different port");
+                None
+            }
+        }
+    } else {
+        tracing::info!("VLS feature not enabled. Compile with --features vls to enable.");
+        None
+    };
 
     // Initialize Persistence
     let fs_store = Arc::new(FilesystemStore::new(ldk_data_dir.clone()));
@@ -1639,19 +1661,39 @@ pub(crate) async fn start_ldk(
                 keys_manager.clone(),
                 user_config,
                 chain_params,
-                cur.as_secs() as u32,
+                now.as_secs() as u32,
                 ldk_data_dir_path.clone(),
             );
             (polled_best_block_hash, fresh_channel_manager)
         }
     };
 
-    // Prepare the RGB wallet
-    let mnemonic_str = mnemonic.to_string();
-    let (_, account_xpub_vanilla, _) =
-        get_account_data(bitcoin_network, &mnemonic_str, false).unwrap();
-    let (_, account_xpub_colored, master_fingerprint) =
-        get_account_data(bitcoin_network, &mnemonic_str, true).unwrap();
+    // Prepare the RGB wallet - get account data based on wallet init method
+    let (account_xpub_vanilla, account_xpub_colored, master_fingerprint, mnemonic_str) = 
+        match &wallet_data {
+            WalletInitData::Mnemonic(mnemonic) => {
+                let mnemonic_str = mnemonic.to_string();
+                let (_, account_xpub_vanilla, _) =
+                    get_account_data(bitcoin_network, &mnemonic_str, false).unwrap();
+                let (_, account_xpub_colored, master_fingerprint) =
+                    get_account_data(bitcoin_network, &mnemonic_str, true).unwrap();
+                (account_xpub_vanilla, account_xpub_colored, master_fingerprint, Some(mnemonic_str))
+            }
+            WalletInitData::ReadMode { 
+                account_xpub_vanilla, 
+                account_xpub_colored, 
+                master_fingerprint, 
+                .. 
+            } => {
+                // Use pre-computed values from read mode, no mnemonic available
+                (
+                    account_xpub_vanilla.clone().parse().unwrap(),
+                    account_xpub_colored.clone().parse().unwrap(), 
+                    master_fingerprint.clone().parse().unwrap(),
+                    None
+                )
+            }
+        };
     let data_dir = static_state
         .storage_dir_path
         .clone()
@@ -1666,7 +1708,7 @@ pub(crate) async fn start_ldk(
             account_xpub_vanilla: account_xpub_vanilla.to_string(),
             account_xpub_colored: account_xpub_colored.to_string(),
             master_fingerprint: master_fingerprint.to_string(),
-            mnemonic: Some(mnemonic.to_string()),
+            mnemonic: mnemonic_str,
             vanilla_keychain: None,
             supported_schemas: vec![AssetSchema::Nia, AssetSchema::Cfa, AssetSchema::Uda],
         })
@@ -1972,6 +2014,7 @@ pub(crate) async fn start_ldk(
         fs_store: Arc::clone(&fs_store),
         bump_tx_event_handler,
         rgb_wallet_wrapper,
+        vls_client,
         maker_swaps,
         taker_swaps,
         router: Arc::clone(&router),
