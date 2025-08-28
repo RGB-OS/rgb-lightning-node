@@ -6,9 +6,6 @@
 #[cfg(feature = "vls")]
 pub mod client;
 
-#[cfg(feature = "vls")]
-pub mod handshake;
-
 
 
 #[cfg(not(feature = "vls"))]
@@ -50,11 +47,6 @@ pub mod client {
     }
 }
 
-#[cfg(not(feature = "vls"))]
-pub mod handshake {
-    //! VLS handshake stub when feature is disabled
-    pub struct HandshakeHandler;
-}
 
 /// VLS gRPC endpoint status check
 pub fn is_vls_available() -> bool {
