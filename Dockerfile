@@ -1,4 +1,4 @@
-FROM rust:1.87.0-bookworm AS builder
+FROM rust:1.89-slim-bookworm AS builder
 
 # Install protobuf compiler required for VLS dependencies
 RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
