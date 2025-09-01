@@ -200,16 +200,25 @@ pub async fn make_grpc_signer(
         shutter.signal.clone(),
     );
 
-    // Temporarily disable dev_allowlist to avoid HsmdDevPreinit message
-    // This will skip the problematic protocol message that's causing TrailingBytes error
+    // Create KeysManagerClient - this sends HsmdInit2 and should complete initialization
+    // The initialization must complete before any AddBlock messages are sent
+    tracing::info!("Creating VLS KeysManagerClient - this will complete VLS initialization");
     let client = KeysManagerClient::new(
-        transport,
+        transport.clone(),
         network.to_string(),
         Some(KeyDerivationStyle::Ldk),
-        None, // This avoids sending HsmdDevPreinit
+        None, // Avoid HsmdDevPreinit to prevent protocol errors
     );
+    tracing::info!("VLS KeysManagerClient created successfully - initialization should be complete");
+    
+    // Give VLS time to transition from InitHandler to RootHandler
+    // This prevents AddBlock messages from arriving while still in init mode
+    tracing::info!("Waiting for VLS handler transition to complete...");
+    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+    
     // NOTE: for now the frontend must be started after the client is created
     // as the TransportSignerPort is always set to ready
+    tracing::info!("Starting VLS frontend - AddBlock messages will now be sent");
     frontend.start();
 
     let node_id = client.get_node_id(Recipient::Node).expect("get node id");
