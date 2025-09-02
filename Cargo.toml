@@ -108,5 +108,13 @@ rev = "36ad8506"
 optional = true
 # path = "../vls/vls-proxy"
 
+[dependencies.vls-protocol]
+features = ["developer"]
+git = "https://gitlab.com/dablanahuber/validating-lightning-signer.git"
+rev = "36ad8506"
+optional = true
+# path = "../vls/vls-proxy"
+
+
 [lints.rust.unexpected_cfgs]
 level = "allow"

@@ -6,7 +6,6 @@ mod error;
 mod ldk;
 mod rgb;
 mod routes;
-
 mod swap;
 mod utils;
 mod vls;

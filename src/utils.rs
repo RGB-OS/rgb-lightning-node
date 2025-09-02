@@ -112,7 +112,10 @@ pub(crate) struct UnlockedAppState {
     pub(crate) maker_swaps: Arc<Mutex<SwapMap>>,
     pub(crate) taker_swaps: Arc<Mutex<SwapMap>>,
     pub(crate) rgb_wallet_wrapper: Arc<RgbLibWalletWrapper>,
-    pub(crate) vls_keys_manager: Option<Arc<crate::vls::client::VlsKeysManager>>,
+    #[cfg(feature = "vls")]
+    pub(crate) vls_keys_manager: Option<Arc<Box<dyn vls_proxy::vls_protocol_client::SpendableKeysInterface<EcdsaSigner = vls_proxy::vls_protocol_client::DynSigner>>>>,
+    #[cfg(not(feature = "vls"))]
+    pub(crate) vls_keys_manager: Option<()>,
     pub(crate) router: Arc<Router>,
     pub(crate) output_sweeper: Arc<OutputSweeper>,
     pub(crate) rgb_send_lock: Arc<Mutex<bool>>,
