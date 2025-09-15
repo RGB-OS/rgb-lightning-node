@@ -80,12 +80,16 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "mul
 serial_test = "3.1.1"
 tracing-test = "0.2.5"
 
+
+
+
+
+
 [patch.crates-io]
 lightning = { path = "./rust-lightning/lightning" }
 lightning-background-processor = { path = "./rust-lightning/lightning-background-processor"}
-
-
-
+lightning-invoice = { path = "./rust-lightning/lightning-invoice" }
+lightning-types = { path = "./rust-lightning/lightning-types" }
 
 [dependencies.vls-core]
 features = ["std"]

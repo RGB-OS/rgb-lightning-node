@@ -85,6 +85,8 @@ use tokio::runtime::Handle;
 use tokio::sync::watch::Sender;
 use tokio::task::JoinHandle;
 
+#[cfg(feature = "vls")]
+use vls_proxy::vls_protocol_client::{DynKeysInterface, DynSigner, SpendableKeysInterface};
 use crate::bitcoind::BitcoindClient;
 use crate::disk::{
     self, FilesystemLogger, CHANNEL_IDS_FNAME, CHANNEL_PEER_DATA, INBOUND_PAYMENTS_FNAME,
@@ -1528,8 +1530,10 @@ pub(crate) async fn start_ldk(
     // Initialize the Keys Manager
     let seed = [42u8; 32]; // TODO: Use proper seed derivation
     let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
-    
-    // Initialize VLS client if enabled, otherwise use standard KeysManager
+
+    #[cfg(feature = "vls")]
+    let mut vls_keys_manager: Option<Arc<DynKeysInterface>> = None;
+
     let (keys_manager, vls_keys_manager) = {
         #[cfg(feature = "vls")]
         {
@@ -1584,8 +1588,9 @@ pub(crate) async fn start_ldk(
             tracing::info!("   💡 Start VLS daemon with: vlsd --network {} --grpc-port {}", network, static_state.vls_port);
             
             // Create VLS-based KeysManager using DynKeysInterface
-            let vls_keys_manager = Arc::new(DynKeysInterface::new(boxed_keys_interface));
-            (vls_keys_manager, None)
+            let vls_km = Arc::new(DynKeysInterface::new(boxed_keys_interface));
+            vls_keys_manager = Some(vls_km.clone());
+            (vls_km, vls_keys_manager)
         }
         
         #[cfg(not(feature = "vls"))]
@@ -1598,17 +1603,47 @@ pub(crate) async fn start_ldk(
 
     // Initialize Persistence
     let fs_store = Arc::new(FilesystemStore::new(ldk_data_dir.clone()));
-    let persister = Arc::new(MonitorUpdatingPersister::new(
-        Arc::clone(&fs_store),
-        Arc::clone(&logger),
-        1000,
-        Arc::clone(&keys_manager),
-        Arc::clone(&keys_manager),
-        Arc::clone(&bitcoind_client),
-        Arc::clone(&bitcoind_client),
-        ldk_data_dir_path.clone(),
-    ));
-
+    let persister = {
+        #[cfg(feature = "vls")]
+        {
+            if let Some(vls_km) = &vls_keys_manager {
+                Arc::new(MonitorUpdatingPersister::new(
+                    Arc::clone(&fs_store),
+                    Arc::clone(&logger),
+                    1000,
+                    Arc::clone(vls_km),
+                    Arc::clone(vls_km),
+                    Arc::clone(&bitcoind_client),
+                    Arc::clone(&bitcoind_client),
+                    ldk_data_dir_path.clone(),
+                ))
+            } else {
+                Arc::new(MonitorUpdatingPersister::new(
+                    Arc::clone(&fs_store),
+                    Arc::clone(&logger),
+                    1000,
+                    Arc::clone(&keys_manager),
+                    Arc::clone(&keys_manager),
+                    Arc::clone(&bitcoind_client),
+                    Arc::clone(&bitcoind_client),
+                    ldk_data_dir_path.clone(),
+                ))
+            }
+        }
+        #[cfg(not(feature = "vls"))]
+        {
+            Arc::new(MonitorUpdatingPersister::new(
+                Arc::clone(&fs_store),
+                Arc::clone(&logger),
+                1000,
+                Arc::clone(&keys_manager),
+                Arc::clone(&keys_manager),
+                Arc::clone(&bitcoind_client),
+                Arc::clone(&bitcoind_client),
+                ldk_data_dir_path.clone(),
+            ))
+        }
+    };
     // Initialize the ChainMonitor
     let chain_monitor: Arc<ChainMonitor> = Arc::new(chainmonitor::ChainMonitor::new(
         None,
