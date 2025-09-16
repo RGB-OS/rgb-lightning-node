@@ -183,7 +183,9 @@ pub(crate) fn read_output_spender_txes(path: &Path) -> OutputSpenderTxes {
             return info;
         }
     }
-    HashMap::new()
+    OutputSpenderTxes {
+        txes: HashMap::new(),
+    }
 }
 
 pub(crate) fn read_swaps_info(path: &Path) -> SwapMap {

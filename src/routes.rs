@@ -9,10 +9,10 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::{Network, ScriptBuf};
 use hex::DisplayHex;
+use lightning::types::payment::{PaymentHash, PaymentPreimage, PaymentSecret};
 use lightning::ln::bolt11_payment::{
-    payment_parameters_from_invoice, payment_parameters_from_zero_amount_invoice,
+    payment_parameters_from_invoice, payment_parameters_from_variable_amount_invoice,
 };
-use lightning::ln::invoice_utils::create_invoice_from_channelmanager;
 use lightning::ln::types::ChannelId;
 use lightning::offers::offer::{self, Offer};
 use lightning::onion_message::messenger::Destination;
@@ -31,7 +31,7 @@ use lightning::{
 use lightning::{
     ln::{
         channelmanager::{PaymentId, RecipientOnionFields, Retry},
-        PaymentHash, PaymentPreimage,
+       
     },
     rgb_utils::{write_rgb_channel_info, write_rgb_payment_info_file, RgbInfo},
     routing::{
@@ -42,7 +42,7 @@ use lightning::{
     util::{errors::APIError as LDKAPIError, IS_SWAP_SCID},
 };
 use lightning_invoice::Currency;
-use lightning_invoice::{Bolt11Invoice, PaymentSecret};
+use lightning_invoice::{Bolt11Invoice, Bolt11InvoiceDescription, Description};
 use regex::Regex;
 use rgb_lib::{
     generate_keys,
@@ -224,6 +224,7 @@ pub(crate) enum AssetSchema {
     Nia,
     Uda,
     Cfa,
+    Ifa,
 }
 
 impl From<AssetSchema> for RgbLibAssetSchema {
@@ -232,6 +233,7 @@ impl From<AssetSchema> for RgbLibAssetSchema {
             AssetSchema::Nia => Self::Nia,
             AssetSchema::Uda => Self::Uda,
             AssetSchema::Cfa => Self::Cfa,
+            AssetSchema::Ifa => Self::Ifa,
         }
     }
 }
@@ -242,7 +244,7 @@ impl From<RgbLibAssetSchema> for AssetSchema {
             RgbLibAssetSchema::Nia => Self::Nia,
             RgbLibAssetSchema::Uda => Self::Uda,
             RgbLibAssetSchema::Cfa => Self::Cfa,
-            RgbLibAssetSchema::Ifa => todo!(),
+            RgbLibAssetSchema::Ifa => Self::Ifa,
         }
     }
 }
@@ -1850,7 +1852,7 @@ pub(crate) async fn keysend(
 
         let status = match unlocked_state
             .channel_manager
-            .send_spontaneous_payment_with_retry(
+            .send_spontaneous_payment(
                 Some(payment_preimage),
                 RecipientOnionFields::spontaneous_empty(),
                 payment_id,
@@ -2428,17 +2430,16 @@ pub(crate) async fn ln_invoice(
             RgbLibNetwork::Regtest => Currency::Regtest,
             RgbLibNetwork::Signet => Currency::Signet,
         };
-        let invoice = match create_invoice_from_channelmanager(
-            &unlocked_state.channel_manager,
-            unlocked_state.keys_manager.clone(),
-            state.static_state.logger.clone(),
-            currency,
-            payload.amt_msat,
-            "ldk-tutorial-node".to_string(),
-            payload.expiry_sec,
-            None,
-            contract_id,
-            payload.asset_amount,
+        let invoice = match unlocked_state.channel_manager.create_bolt11_invoice(
+            lightning::ln::channelmanager::Bolt11InvoiceParameters {
+                amount_msats: payload.amt_msat,
+                invoice_expiry_delta_secs: Some(payload.expiry_sec),
+                contract_id: contract_id,
+                amt_rgb: payload.asset_amount,
+                description: Bolt11InvoiceDescription::Direct(Description::new("ldk-tutorial-node".to_string()).map_err(|_| APIError::InvalidInvoice(s!("invalid description")))?),
+                min_final_cltv_expiry_delta: None,
+                payment_hash: None,
+            }
         ) {
             Ok(inv) => inv,
             Err(e) => return Err(APIError::FailedInvoiceCreation(e.to_string())),
@@ -2679,10 +2680,13 @@ pub(crate) async fn maker_execute(
         unlocked_state.update_maker_swap_status(&swapstring.payment_hash, SwapStatus::Pending);
 
         let (_status, err) = match unlocked_state.channel_manager.send_spontaneous_payment(
-            &route,
             Some(payment_preimage),
             RecipientOnionFields::spontaneous_empty(),
+            
             PaymentId(swapstring.payment_hash.0),
+            route.route_params.unwrap(),
+            Retry::Timeout(Duration::from_secs(10)),
+
         ) {
             Ok(_payment_hash) => {
                 tracing::debug!("EVENT: initiated swap");
@@ -3001,11 +3005,10 @@ pub(crate) async fn open_channel(
                 .rgb_get_asset_metadata(*contract_id)?
                 .asset_schema;
             let assignment = match schema {
-                RgbLibAssetSchema::Nia | RgbLibAssetSchema::Cfa => {
+                RgbLibAssetSchema::Nia | RgbLibAssetSchema::Cfa | RgbLibAssetSchema::Ifa => {
                     Assignment::Fungible(*asset_amount)
                 }
                 RgbLibAssetSchema::Uda => Assignment::NonFungible,
-                RgbLibAssetSchema::Ifa => todo!(),
             };
 
             let recipient_map = map! {
@@ -3076,7 +3079,7 @@ pub(crate) async fn open_channel(
         if let Some((contract_id, asset_amount)) = &colored_info {
             let rgb_info = RgbInfo {
                 contract_id: *contract_id,
-                schema: schema.unwrap(),
+                schema: schema,
                 local_rgb_amount: *asset_amount,
                 remote_rgb_amount: 0,
             };
@@ -3396,7 +3399,7 @@ pub(crate) async fn send_payment(
                     amt_msat: Some(amt_msat),
                     created_at,
                     updated_at: created_at,
-                    payee_pubkey: offer.signing_pubkey().ok_or(APIError::InvalidInvoice(s!("missing signing pubkey")))?,
+                    payee_pubkey: offer.issuer_signing_pubkey().ok_or(APIError::InvalidInvoice(s!("missing signing pubkey")))?,
                 },
             )?;
 
@@ -3423,7 +3426,7 @@ pub(crate) async fn send_payment(
                 invoice.amount_milli_satoshis().is_none() || invoice.amount_milli_satoshis() == Some(0);
             let (pay_params_opt, amt_msat) = if zero_amt_invoice {
                 if let Some(amt_msat) = payload.amt_msat {
-                    (payment_parameters_from_zero_amount_invoice(&invoice, amt_msat), amt_msat)
+                    (payment_parameters_from_variable_amount_invoice(&invoice, amt_msat), amt_msat)
                 } else {
                     return Err(APIError::InvalidAmount(s!(
                         "need an amount for the given 0-value invoice"

@@ -16,7 +16,7 @@ use lightning::ln::channelmanager::{
 use lightning::ln::msgs::SocketAddress;
 use lightning::ln::peer_handler::{IgnoringMessageHandler, MessageHandler, SimpleArcPeerManager};
 use lightning::ln::types::ChannelId;
-use lightning::ln::{PaymentHash, PaymentPreimage, PaymentSecret};
+use lightning::types::payment::{PaymentHash, PaymentPreimage, PaymentSecret};
 use lightning::onion_message::messenger::{DefaultMessageRouter, SimpleArcOnionMessenger};
 use lightning::rgb_utils::{
     get_rgb_channel_info_pending, is_channel_rgb, parse_rgb_payment_info, read_rgb_transfer_info,
@@ -24,6 +24,7 @@ use lightning::rgb_utils::{
     WALLET_ACCOUNT_XPUB_COLORED_FNAME, WALLET_ACCOUNT_XPUB_VANILLA_FNAME, WALLET_FINGERPRINT_FNAME,
     WALLET_MASTER_FINGERPRINT_FNAME,
 };
+use rgb_lib::{Assignment, AssetSchema};
 use lightning::routing::gossip;
 use lightning::routing::gossip::{NodeId, P2PGossipSync};
 use lightning::routing::router::DefaultRouter;
@@ -61,7 +62,7 @@ use rgb_lib::{
         DatabaseType, Recipient, TransportEndpoint, Wallet as RgbLibWallet, WalletData,
         WitnessData,
     },
-    AssetSchema, Assignment, BitcoinNetwork, ConsignmentExt, ContractId, FileContent, RgbTransfer,
+    BitcoinNetwork, ConsignmentExt, ContractId, FileContent, RgbTransfer,
     RgbTxid, WitnessOrd,
 };
 use std::collections::hash_map::Entry;
@@ -452,7 +453,13 @@ pub(crate) type BumpTxEventHandler = BumpTransactionEventHandler<
     Arc<FilesystemLogger>,
 >;
 
-pub(crate) type OutputSpenderTxes = HashMap<u64, bitcoin::Transaction>;
+pub(crate) struct OutputSpenderTxes {
+    pub(crate) txes: HashMap<u64, bitcoin::Transaction>,
+}
+
+impl_writeable_tlv_based!(OutputSpenderTxes, {
+    (0, txes, required),
+});
 
 pub(crate) struct RgbOutputSpender {
     static_state: Arc<StaticState>,
@@ -539,9 +546,8 @@ async fn handle_ldk_events(
                 let channel_rgb_amount: u64 = rgb_info.local_rgb_amount;
                 let asset_id = rgb_info.contract_id.to_string();
                 let assignment = match rgb_info.schema {
-                    AssetSchema::Nia | AssetSchema::Cfa => Assignment::Fungible(channel_rgb_amount),
-                    AssetSchema::Uda => Assignment::NonFungible,
-                    AssetSchema::Ifa => todo!(),
+                    schema if matches!(schema.to_string().as_str(), "nia" | "cfa" | "ifa") => Assignment::Fungible(channel_rgb_amount),
+                    _ => Assignment::NonFungible,
                 };
 
                 let recipient_id = recipient_id_from_script_buf(script_buf, static_state.network);
@@ -654,6 +660,7 @@ async fn handle_ldk_events(
             claim_deadline: _,
             onion_fields: _,
             counterparty_skimmed_fee_msat: _,
+            payment_id: _,
         } => {
             tracing::info!(
                 "EVENT: received payment from payment hash {} of {} millisatoshis",
@@ -684,6 +691,7 @@ async fn handle_ldk_events(
             htlcs: _,
             sender_intended_total_msat: _,
             onion_fields: _,
+            payment_id: _,
         } => {
             tracing::info!(
                 "EVENT: claimed payment from payment hash {} of {} millisatoshis",
@@ -844,6 +852,8 @@ async fn handle_ldk_events(
             outbound_amount_forwarded_rgb,
             inbound_amount_forwarded_rgb,
             payment_hash,
+            prev_node_id: _,
+            next_node_id: _,
         } => {
             let prev_channel_id_str = prev_channel_id.expect("prev_channel_id").to_string();
             let next_channel_id_str = next_channel_id.expect("next_channel_id").to_string();
@@ -1039,6 +1049,7 @@ async fn handle_ldk_events(
             counterparty_node_id,
             channel_capacity_sats: _,
             channel_funding_txo: _,
+            last_local_balance_msat: _,
         } => {
             tracing::info!(
                 "EVENT: Channel {} with counterparty {} closed due to: {:?}",
@@ -1226,7 +1237,7 @@ impl OutputSpender for RgbOutputSpender {
         descriptors.hash(&mut hasher);
         let descriptors_hash = hasher.finish();
         let mut txes = self.txes.lock().unwrap();
-        if let Some(tx) = txes.get(&descriptors_hash) {
+        if let Some(tx) = txes.txes.get(&descriptors_hash) {
             return Ok(tx.clone());
         }
 
@@ -1409,7 +1420,7 @@ impl OutputSpender for RgbOutputSpender {
             fs::remove_file(&consignment_path).unwrap();
         }
 
-        txes.insert(descriptors_hash, spending_tx.clone());
+        txes.txes.insert(descriptors_hash, spending_tx.clone());
         self.fs_store
             .write("", "", OUTPUT_SPENDER_TXES, &txes.encode())
             .unwrap();
