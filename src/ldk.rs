@@ -1867,6 +1867,7 @@ pub(crate) async fn start_ldk(
         Arc::clone(&channel_manager),
         Arc::clone(&channel_manager),
         IgnoringMessageHandler {},
+        IgnoringMessageHandler {},
     ));
     let mut ephemeral_bytes = [0; 32];
     let current_time = SystemTime::now()
@@ -1891,7 +1892,7 @@ pub(crate) async fn start_ldk(
     let utxo_lookup = GossipVerifier::new(
         Arc::clone(&bitcoind_client.bitcoind_rpc_client),
         lightning_block_sync::gossip::TokioSpawner,
-        gossip_arc,
+        Arc::clone(&gossip_sync),
         Arc::clone(&peer_manager),
     );
     gossip_sync.add_utxo_lookup(Some(utxo_lookup));
