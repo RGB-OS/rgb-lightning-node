@@ -3079,7 +3079,7 @@ pub(crate) async fn open_channel(
         if let Some((contract_id, asset_amount)) = &colored_info {
             let rgb_info = RgbInfo {
                 contract_id: *contract_id,
-                schema: schema,
+                schema: schema.unwrap(),
                 local_rgb_amount: *asset_amount,
                 remote_rgb_amount: 0,
             };
