@@ -1611,9 +1611,9 @@ pub(crate) async fn start_ldk(
     let mut restarting_node = true;
     let (channel_manager_blockhash, channel_manager) = {
         if let Ok(f) = fs::File::open(ldk_data_dir.join("manager")) {
-            let mut channel_monitor_mut_references = Vec::new();
-            for (_, channel_monitor) in channelmonitors.iter_mut() {
-                channel_monitor_mut_references.push(channel_monitor);
+            let mut channel_monitor_references = Vec::new();
+            for (_, channel_monitor) in channelmonitors.iter() {
+                channel_monitor_references.push(channel_monitor);
             }
             let read_args = ChannelManagerReadArgs::new(
                 keys_manager.clone(),
@@ -1623,9 +1623,13 @@ pub(crate) async fn start_ldk(
                 chain_monitor.clone(),
                 broadcaster.clone(),
                 router.clone(),
+                Arc::new(DefaultMessageRouter::new(
+                    Arc::clone(&network_graph),
+                    Arc::clone(&keys_manager),
+                )),
                 logger.clone(),
                 user_config,
-                channel_monitor_mut_references,
+                channel_monitor_references,
                 ldk_data_dir_path.clone(),
             );
             <(BlockHash, ChannelManager)>::read(&mut BufReader::new(f), read_args).unwrap()
@@ -1644,6 +1648,10 @@ pub(crate) async fn start_ldk(
                 chain_monitor.clone(),
                 broadcaster.clone(),
                 router.clone(),
+                Arc::new(DefaultMessageRouter::new(
+                    Arc::clone(&network_graph),
+                    Arc::clone(&keys_manager),
+                )),
                 logger.clone(),
                 keys_manager.clone(),
                 keys_manager.clone(),
@@ -1879,12 +1887,11 @@ pub(crate) async fn start_ldk(
         logger.clone(),
         Arc::clone(&keys_manager),
     ));
-
     // Install a GossipVerifier in in the P2PGossipSync
     let utxo_lookup = GossipVerifier::new(
         Arc::clone(&bitcoind_client.bitcoind_rpc_client),
         lightning_block_sync::gossip::TokioSpawner,
-        Arc::clone(&gossip_sync),
+        gossip_arc,
         Arc::clone(&peer_manager),
     );
     gossip_sync.add_utxo_lookup(Some(utxo_lookup));
