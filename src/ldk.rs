@@ -66,7 +66,7 @@ use rgb_lib::{
     RgbTxid, WitnessOrd,
 };
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use lightning::util::hash_tables::HashMap;
 use std::convert::TryInto;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};

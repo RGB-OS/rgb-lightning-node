@@ -4,7 +4,7 @@ use chrono::Utc;
 use lightning::routing::scoring::{ProbabilisticScorer, ProbabilisticScoringDecayParameters};
 use lightning::util::logger::{Logger, Record};
 use lightning::util::ser::{Readable, ReadableArgs, Writer};
-use std::collections::HashMap;
+use lightning::util::hash_tables::HashMap;
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
