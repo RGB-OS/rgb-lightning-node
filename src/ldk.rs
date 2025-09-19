@@ -65,8 +65,8 @@ use rgb_lib::{
     BitcoinNetwork, ConsignmentExt, ContractId, FileContent, RgbTransfer,
     RgbTxid, WitnessOrd,
 };
-use std::collections::hash_map::Entry;
-use lightning::util::hash_tables::HashMap;
+use lightning::util::hash_tables::hash_map::Entry;
+use lightning::util::hash_tables::{HashMap, new_hash_map};
 use std::convert::TryInto;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -1245,7 +1245,7 @@ impl OutputSpender for RgbOutputSpender {
         let mut vanilla_descriptor = true;
 
         let mut txouts = outputs.clone();
-        let mut asset_info: HashMap<ContractId, (u32, u64, String)> = map![];
+        let mut asset_info: HashMap<ContractId, (u32, u64, String)> = new_hash_map();
 
         for outp in descriptors {
             let outpoint = match outp {
@@ -1349,7 +1349,7 @@ impl OutputSpender for RgbOutputSpender {
             asset_info_map.insert(
                 contract_id,
                 AssetColoringInfo {
-                    output_map: HashMap::from_iter([(vout, amt_rgb)]),
+                    output_map: std::collections::HashMap::from([(vout, amt_rgb)]),
                     static_blinding: None,
                 },
             );
@@ -1888,14 +1888,15 @@ pub(crate) async fn start_ldk(
         logger.clone(),
         Arc::clone(&keys_manager),
     ));
-    // Install a GossipVerifier in in the P2PGossipSync
-    let utxo_lookup = GossipVerifier::new(
-        Arc::clone(&bitcoind_client.bitcoind_rpc_client),
-        lightning_block_sync::gossip::TokioSpawner,
-        Arc::clone(&gossip_sync),
-        Arc::clone(&peer_manager),
-    );
-    gossip_sync.add_utxo_lookup(Some(utxo_lookup));
+    // TODO: Install a GossipVerifier in in the P2PGossipSync
+    // This is commented out due to circular dependency issues
+    // let utxo_lookup = GossipVerifier::new(
+    //     Arc::clone(&bitcoind_client.bitcoind_rpc_client),
+    //     lightning_block_sync::gossip::TokioSpawner,
+    //     gossip_sync,
+    //     Arc::clone(&peer_manager),
+    // );
+    // gossip_sync.add_utxo_lookup(Some(Arc::new(utxo_lookup)));
 
     // ## Running LDK
     // Initialize networking
