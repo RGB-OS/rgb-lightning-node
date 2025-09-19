@@ -423,7 +423,7 @@ pub(crate) type PeerManager = SimpleArcPeerManager<
     ChainMonitor,
     BitcoindClient,
     BitcoindClient,
-    GossipVerifier,
+    Arc<GossipVerifier>,
     FilesystemLogger,
 >;
 
@@ -1846,14 +1846,7 @@ pub(crate) async fn start_ldk(
         );
     }
 
-    // Optional: Initialize the P2PGossipSync
-    let gossip_sync = Arc::new(P2PGossipSync::new(
-        Arc::clone(&network_graph),
-        None,
-        Arc::clone(&logger),
-    ));
-
-    // Initialize the PeerManager
+    // Initialize the ChannelManager first
     let channel_manager: Arc<ChannelManager> = Arc::new(channel_manager);
     let onion_messenger: Arc<OnionMessenger> = Arc::new(OnionMessenger::new(
         Arc::clone(&keys_manager),
@@ -1869,11 +1862,52 @@ pub(crate) async fn start_ldk(
         IgnoringMessageHandler {},
         IgnoringMessageHandler {},
     ));
+
+    // We need to break the circular dependency by creating the objects step by step
+    // First, create a P2PGossipSync without UTXO lookup
+    let temp_gossip_sync = Arc::new(P2PGossipSync::new(
+        Arc::clone(&network_graph),
+        None::<Arc<GossipVerifier>>,
+        Arc::clone(&logger),
+    ));
+
+    // Create a temporary PeerManager for the GossipVerifier constructor
     let mut ephemeral_bytes = [0; 32];
     let current_time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_secs();
+    rand::thread_rng().fill_bytes(&mut ephemeral_bytes);
+    let temp_lightning_msg_handler = MessageHandler {
+        chan_handler: channel_manager.clone(),
+        route_handler: temp_gossip_sync.clone(),
+        onion_message_handler: onion_messenger.clone(),
+        custom_message_handler: IgnoringMessageHandler {},
+    };
+    let temp_peer_manager: Arc<PeerManager> = Arc::new(PeerManager::new(
+        temp_lightning_msg_handler,
+        current_time.try_into().unwrap(),
+        &ephemeral_bytes,
+        logger.clone(),
+        Arc::clone(&keys_manager),
+    ));
+
+    // Now create the GossipVerifier with temporary objects
+    let utxo_lookup = Arc::new(GossipVerifier::new(
+        Arc::clone(&bitcoind_client.bitcoind_rpc_client),
+        lightning_block_sync::gossip::TokioSpawner,
+        temp_gossip_sync.clone(),
+        temp_peer_manager,
+    ));
+
+    // Create the final P2PGossipSync with the GossipVerifier
+    let gossip_sync = Arc::new(P2PGossipSync::new(
+        Arc::clone(&network_graph),
+        Some(utxo_lookup),
+        Arc::clone(&logger),
+    ));
+
+    // Create the final PeerManager with the correct gossip_sync
     rand::thread_rng().fill_bytes(&mut ephemeral_bytes);
     let lightning_msg_handler = MessageHandler {
         chan_handler: channel_manager.clone(),
@@ -1888,15 +1922,6 @@ pub(crate) async fn start_ldk(
         logger.clone(),
         Arc::clone(&keys_manager),
     ));
-    // TODO: Install a GossipVerifier in in the P2PGossipSync
-    // This is commented out due to circular dependency issues
-    // let utxo_lookup = GossipVerifier::new(
-    //     Arc::clone(&bitcoind_client.bitcoind_rpc_client),
-    //     lightning_block_sync::gossip::TokioSpawner,
-    //     gossip_sync,
-    //     Arc::clone(&peer_manager),
-    // );
-    // gossip_sync.add_utxo_lookup(Some(Arc::new(utxo_lookup)));
 
     // ## Running LDK
     // Initialize networking

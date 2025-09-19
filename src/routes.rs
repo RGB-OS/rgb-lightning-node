@@ -2424,7 +2424,7 @@ pub(crate) async fn ln_invoice(
             )));
         }
 
-        let currency = match state.static_state.network {
+        let _currency = match state.static_state.network {
             RgbLibNetwork::Mainnet => Currency::Bitcoin,
             RgbLibNetwork::Testnet => Currency::BitcoinTestnet,
             RgbLibNetwork::Regtest => Currency::Regtest,
