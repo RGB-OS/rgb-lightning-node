@@ -100,7 +100,7 @@ use crate::utils::{
 
 pub(crate) const FEE_RATE: u64 = 7;
 pub(crate) const UTXO_SIZE_SAT: u32 = 32000;
-pub(crate) const MIN_CHANNEL_CONFIRMATIONS: u8 = 6;
+pub(crate) const MIN_CHANNEL_CONFIRMATIONS: u8 = 1;
 
 pub(crate) struct LdkBackgroundServices {
     stop_processing: Arc<AtomicBool>,
@@ -1608,6 +1608,8 @@ pub(crate) async fn start_ldk(
         .channel_handshake_config
         .negotiate_anchors_zero_fee_htlc_tx = true;
     user_config.manually_accept_inbound_channels = true;
+    // Reduce confirmation requirements for faster channel opening in testing
+    user_config.channel_handshake_config.minimum_depth = 1;
     let mut restarting_node = true;
     let (channel_manager_blockhash, channel_manager) = {
         if let Ok(f) = fs::File::open(ldk_data_dir.join("manager")) {
