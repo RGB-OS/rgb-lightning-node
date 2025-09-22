@@ -686,9 +686,9 @@ dependencies = [
 
 [[package]]
 name = "bdk_chain"
-version = "0.23.1"
+version = "0.23.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c361affe46a0120a077e0124e087ce1b4f7eeb9163cb6e5edc43ef21f847b3dc"
+checksum = "5b5d691fd092aacec7e05046b7d04897d58d6d65ed3152cb6cf65dababcfabed"
 dependencies = [
  "bdk_core",
  "bitcoin",
@@ -698,9 +698,9 @@ dependencies = [
 
 [[package]]
 name = "bdk_core"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f549541116c9f100cd7aa06b5e551e49bcc1f8dda1d0583e014de891aa943329"
+checksum = "0dbbe4aad0c898bfeb5253c222be3ea3dccfb380a07e72c87e3e4ed6664a6753"
 dependencies = [
  "bitcoin",
  "hashbrown 0.14.5",
@@ -709,9 +709,9 @@ dependencies = [
 
 [[package]]
 name = "bdk_electrum"
-version = "0.23.1"
+version = "0.23.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e36909a0f4b32146c0885cc553890489fd47e9141dbef260fccdf09a2c582e33"
+checksum = "b59a3f7fbe678874fa34354097644a171276e02a49934c13b3d61c54610ddf39"
 dependencies = [
  "bdk_core",
  "electrum-client 0.24.0",
@@ -2945,14 +2945,18 @@ dependencies = [
 
 [[package]]
 name = "lightning"
-version = "0.0.125"
+version = "0.1.1"
 dependencies = [
- "bech32 0.9.1",
+ "bech32 0.11.0",
  "bitcoin",
+ "dnssec-prover",
  "futures",
- "lightning-invoice 0.32.0",
- "lightning-types 0.1.0",
+ "hashbrown 0.13.2",
+ "libm",
+ "lightning-invoice 0.33.1",
+ "lightning-types 0.2.0",
  "musig2",
+ "possiblyrandom 0.2.0",
  "rgb-lib",
  "serde",
  "serde_json",
@@ -2971,40 +2975,42 @@ dependencies = [
  "hashbrown 0.13.2",
  "libm",
  "lightning-invoice 0.33.2",
- "lightning-types 0.2.0",
- "possiblyrandom",
+ "lightning-types 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "possiblyrandom 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "regex",
 ]
 
 [[package]]
 name = "lightning-background-processor"
-version = "0.0.125"
+version = "0.1.0"
 dependencies = [
  "bitcoin",
- "lightning 0.0.125",
+ "bitcoin-io",
+ "bitcoin_hashes 0.14.0",
+ "lightning 0.1.1",
  "lightning-rapid-gossip-sync",
 ]
 
 [[package]]
 name = "lightning-block-sync"
-version = "0.0.125"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea041135bad736b075ad1123ef0a4793e78da8041386aa7887779fc5c540b94b"
+checksum = "baab5bdee174a2047d939a4ca0dc2e1c23caa0f8cab0b4380aed77a20e116f1e"
 dependencies = [
  "bitcoin",
  "chunked_transfer",
- "lightning 0.0.125",
+ "lightning 0.1.5",
  "serde_json",
  "tokio",
 ]
 
 [[package]]
 name = "lightning-invoice"
-version = "0.32.0"
+version = "0.33.1"
 dependencies = [
- "bech32 0.9.1",
+ "bech32 0.11.0",
  "bitcoin",
- "lightning-types 0.1.0",
+ "lightning-types 0.2.0",
  "rgb-lib",
 ]
 
@@ -3016,35 +3022,37 @@ checksum = "11209f386879b97198b2bfc9e9c1e5d42870825c6bd4376f17f95357244d6600"
 dependencies = [
  "bech32 0.11.0",
  "bitcoin",
- "lightning-types 0.2.0",
+ "lightning-types 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "lightning-net-tokio"
-version = "0.0.125"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af2847a19f892f32b9ab5075af25c70370b4cc5842b4f5b53c57092e52a49498"
+checksum = "cb6a6c93b1e592f1d46bb24233cac4a33b4015c99488ee229927a81d16226e45"
 dependencies = [
  "bitcoin",
- "lightning 0.0.125",
+ "lightning 0.1.5",
  "tokio",
 ]
 
 [[package]]
 name = "lightning-persister"
-version = "0.0.125"
+version = "0.1.0"
 dependencies = [
  "bitcoin",
- "lightning 0.0.125",
+ "lightning 0.1.1",
  "windows-sys 0.48.0",
 ]
 
 [[package]]
 name = "lightning-rapid-gossip-sync"
-version = "0.0.125"
+version = "0.1.0"
 dependencies = [
  "bitcoin",
- "lightning 0.0.125",
+ "bitcoin-io",
+ "bitcoin_hashes 0.14.0",
+ "lightning 0.1.1",
 ]
 
 [[package]]
@@ -3065,11 +3073,18 @@ dependencies = [
 
 [[package]]
 name = "lightning-types"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
- "bech32 0.9.1",
  "bitcoin",
- "hex-conservative 0.2.1",
+]
+
+[[package]]
+name = "lightning-types"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2cd84d4e71472035903e43caded8ecc123066ce466329ccd5ae537a8d5488c7"
+dependencies = [
+ "bitcoin",
 ]
 
 [[package]]
@@ -3354,9 +3369,9 @@ dependencies = [
 
 [[package]]
 name = "nonasync"
-version = "0.1.3"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d81f7335a3fa37124e24461d6164485760d4c056dd92a81a70c23fc28c2b63c8"
+checksum = "4b1005555d351f593bf72ffc3a89a0d42e243df004d2c4ded17699f10b562b98"
 dependencies = [
  "amplify",
 ]
@@ -3764,6 +3779,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8a2f0d8d040d7848a709caf78912debcc3f33ee4b3cac47d73d1e1069e83507"
 dependencies = [
  "portable-atomic",
+]
+
+[[package]]
+name = "possiblyrandom"
+version = "0.2.0"
+dependencies = [
+ "getrandom 0.2.16",
 ]
 
 [[package]]
@@ -4283,7 +4305,7 @@ dependencies = [
  "time",
  "typenum",
  "walkdir",
- "zip 4.5.0",
+ "zip 4.6.1",
 ]
 
 [[package]]
@@ -4320,10 +4342,10 @@ dependencies = [
  "getrandom 0.2.16",
  "hex-conservative 0.3.0",
  "lazy_static",
- "lightning 0.0.125",
+ "lightning 0.1.1",
  "lightning-background-processor",
  "lightning-block-sync",
- "lightning-invoice 0.32.0",
+ "lightning-invoice 0.33.1",
  "lightning-net-tokio",
  "lightning-persister",
  "lightning-rapid-gossip-sync",
@@ -4470,9 +4492,9 @@ dependencies = [
 
 [[package]]
 name = "rust_decimal"
-version = "1.37.2"
+version = "1.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b203a6425500a03e0919c42d3c47caca51e79f1132046626d2c8871c5092035d"
+checksum = "c8975fc98059f365204d635119cf9c5a60ae67b841ed49b5422a9a7e56cdfac0"
 dependencies = [
  "arrayvec",
  "num-traits",
@@ -7040,9 +7062,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "4.5.0"
+version = "4.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8835eb39822904d39cb19465de1159e05d371973f0c6df3a365ad50565ddc8b9"
+checksum = "caa8cd6af31c3b31c6631b8f483848b91589021b28fffe50adada48d4f4d2ed1"
 dependencies = [
  "arbitrary",
  "crc32fast",

@@ -88,7 +88,7 @@ To send some bitcoins to a node, first get a bitcoin address with the POST
 ./regtest.sh sendtoaddress <address> <amount>
 ```
 
-To mine, run:
+To mine, run:lets staf
 ```sh
 ./regtest.sh mine <blocks>
 ```
@@ -112,6 +112,10 @@ When unlocking regtest nodes use the following local services:
 - proxy_endpoint: rpc://127.0.0.1:3000/json-rpc
 
 ### Testnet
+
+
+
+
 
 When running the node on the testnet network the docker services are not needed
 because the node will use some public services.
@@ -234,9 +238,23 @@ Tests can be executed with:
 cargo test
 ```
 
+## Projects using RLN
+
+Here is a list of projects using RLN, in alphabetical order:
+- [Iris Wallet desktop]
+- [KaleidoSwap]
+- [Lnfi]
+- [Spectrum]
+- [Thunderstack]
+
 
 [RGB proxy server]: https://github.com/RGB-Tools/rgb-proxy-server
 [ldk-sample]: https://github.com/lightningdevkit/ldk-sample
 [OpenAPI specification]: /openapi.yaml
 [rgb-lightning-sample]: https://github.com/RGB-Tools/rgb-lightning-sample
 [rust-lightning]: https://github.com/lightningdevkit/rust-lightning
+[Iris Wallet desktop]: https://github.com/RGB-Tools/iris-wallet-desktop
+[KaleidoSwap]: https://kaleidoswap.com/
+[Lnfi]: https://www.lnfi.network/
+[Spectrum]: https://rgbspectrum.pages.dev/
+[Thunderstack]: https://thunderstack.org/
