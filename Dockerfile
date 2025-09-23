@@ -1,10 +1,14 @@
+FROM rust:1.89-slim-bookworm AS builder
 FROM rust:1.87.0-bookworm AS builder
 
 # Install protobuf compiler required for VLS dependencies
 RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
 
-COPY . .
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+COPY rust-lightning ./rust-lightning
 
+RUN cargo build
 # Build with release mode to reduce size and build time
 RUN cargo build --release --features vls
 
@@ -14,7 +18,17 @@ FROM debian:bookworm-slim
 COPY --from=builder ./target/release/rgb-lightning-node /usr/bin/rgb-lightning-node
 
 RUN apt-get update && apt install -y --no-install-recommends \
-    ca-certificates openssl \
+    ca-certificates openssl wget s3fs bash unzip curl nvme-cli \
     && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-ENTRYPOINT ["/usr/bin/rgb-lightning-node"]
+# Install AWS CLI v2
+RUN wget "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -O "awscliv2.zip" \
+    && unzip awscliv2.zip \
+    && ./aws/install \
+    && rm -rf awscliv2.zip aws/
+
+COPY start.sh /
+
+RUN chmod +x start.sh && mkdir /s3
+
+ENTRYPOINT ["/start.sh"]

@@ -4,7 +4,7 @@ use chrono::Utc;
 use lightning::routing::scoring::{ProbabilisticScorer, ProbabilisticScoringDecayParameters};
 use lightning::util::logger::{Logger, Record};
 use lightning::util::ser::{Readable, ReadableArgs, Writer};
-use std::collections::HashMap;
+use lightning::util::hash_tables::{HashMap, new_hash_map};
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -125,9 +125,9 @@ pub(crate) fn delete_channel_peer(path: &Path, pubkey: String) -> Result<(), API
 pub(crate) fn read_channel_peer_data(
     path: &Path,
 ) -> Result<HashMap<PublicKey, SocketAddr>, APIError> {
-    let mut peer_data = HashMap::new();
+    let mut peer_data = new_hash_map();
     if !path.exists() {
-        return Ok(HashMap::new());
+        return Ok(new_hash_map());
     }
     let file = File::open(path)?;
     let reader = BufReader::new(file);
@@ -162,7 +162,7 @@ pub(crate) fn read_inbound_payment_info(path: &Path) -> InboundPaymentInfoStorag
         }
     }
     InboundPaymentInfoStorage {
-        payments: HashMap::new(),
+        payments: new_hash_map(),
     }
 }
 
@@ -173,7 +173,7 @@ pub(crate) fn read_outbound_payment_info(path: &Path) -> OutboundPaymentInfoStor
         }
     }
     OutboundPaymentInfoStorage {
-        payments: HashMap::new(),
+        payments: new_hash_map(),
     }
 }
 
@@ -183,7 +183,9 @@ pub(crate) fn read_output_spender_txes(path: &Path) -> OutputSpenderTxes {
             return info;
         }
     }
-    HashMap::new()
+    OutputSpenderTxes {
+        txes: new_hash_map(),
+    }
 }
 
 pub(crate) fn read_swaps_info(path: &Path) -> SwapMap {
@@ -193,7 +195,7 @@ pub(crate) fn read_swaps_info(path: &Path) -> SwapMap {
         }
     }
     SwapMap {
-        swaps: HashMap::new(),
+        swaps: new_hash_map(),
     }
 }
 
@@ -219,6 +221,6 @@ pub(crate) fn read_channel_ids_info(path: &Path) -> ChannelIdsMap {
         }
     }
     ChannelIdsMap {
-        channel_ids: HashMap::new(),
+        channel_ids: new_hash_map(),
     }
 }

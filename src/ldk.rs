@@ -16,7 +16,7 @@ use lightning::ln::channelmanager::{
 use lightning::ln::msgs::SocketAddress;
 use lightning::ln::peer_handler::{IgnoringMessageHandler, MessageHandler, SimpleArcPeerManager};
 use lightning::ln::types::ChannelId;
-use lightning::ln::{PaymentHash, PaymentPreimage, PaymentSecret};
+use lightning::types::payment::{PaymentHash, PaymentPreimage, PaymentSecret};
 use lightning::onion_message::messenger::{DefaultMessageRouter, SimpleArcOnionMessenger};
 use lightning::rgb_utils::{
     get_rgb_channel_info_pending, is_channel_rgb, parse_rgb_payment_info, read_rgb_transfer_info,
@@ -24,6 +24,7 @@ use lightning::rgb_utils::{
     WALLET_ACCOUNT_XPUB_COLORED_FNAME, WALLET_ACCOUNT_XPUB_VANILLA_FNAME, WALLET_FINGERPRINT_FNAME,
     WALLET_MASTER_FINGERPRINT_FNAME,
 };
+use rgb_lib::{Assignment, AssetSchema};
 use lightning::routing::gossip;
 use lightning::routing::gossip::{NodeId, P2PGossipSync};
 use lightning::routing::router::DefaultRouter;
@@ -64,11 +65,11 @@ use rgb_lib::{
         DatabaseType, Recipient, TransportEndpoint, Wallet as RgbLibWallet, WalletData,
         WitnessData,
     },
-    AssetSchema, Assignment, BitcoinNetwork, ConsignmentExt, ContractId, FileContent, RgbTransfer,
+    BitcoinNetwork, ConsignmentExt, ContractId, FileContent, RgbTransfer,
     RgbTxid, WitnessOrd,
 };
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use lightning::util::hash_tables::hash_map::Entry;
+use lightning::util::hash_tables::{HashMap, new_hash_map};
 use std::convert::TryInto;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -105,7 +106,7 @@ use crate::utils::{
 
 pub(crate) const FEE_RATE: u64 = 7;
 pub(crate) const UTXO_SIZE_SAT: u32 = 32000;
-pub(crate) const MIN_CHANNEL_CONFIRMATIONS: u8 = 6;
+pub(crate) const MIN_CHANNEL_CONFIRMATIONS: u8 = 1;
 
 #[derive(Debug, Clone)]
 pub(crate) enum WalletInitData {
@@ -440,7 +441,7 @@ pub(crate) type PeerManager = SimpleArcPeerManager<
     ChainMonitor,
     BitcoindClient,
     BitcoindClient,
-    GossipVerifier,
+    Arc<GossipVerifier>,
     FilesystemLogger,
 >;
 
@@ -470,7 +471,13 @@ pub(crate) type BumpTxEventHandler = BumpTransactionEventHandler<
     Arc<FilesystemLogger>,
 >;
 
-pub(crate) type OutputSpenderTxes = HashMap<u64, bitcoin::Transaction>;
+pub(crate) struct OutputSpenderTxes {
+    pub(crate) txes: HashMap<u64, bitcoin::Transaction>,
+}
+
+impl_writeable_tlv_based!(OutputSpenderTxes, {
+    (0, txes, required),
+});
 
 pub(crate) struct RgbOutputSpender {
     static_state: Arc<StaticState>,
@@ -557,9 +564,8 @@ async fn handle_ldk_events(
                 let channel_rgb_amount: u64 = rgb_info.local_rgb_amount;
                 let asset_id = rgb_info.contract_id.to_string();
                 let assignment = match rgb_info.schema {
-                    AssetSchema::Nia | AssetSchema::Cfa => Assignment::Fungible(channel_rgb_amount),
-                    AssetSchema::Uda => Assignment::NonFungible,
-                    AssetSchema::Ifa => todo!(),
+                    schema if matches!(schema.to_string().as_str(), "nia" | "cfa" | "ifa") => Assignment::Fungible(channel_rgb_amount),
+                    _ => Assignment::NonFungible,
                 };
 
                 let recipient_id = recipient_id_from_script_buf(script_buf, static_state.network);
@@ -672,6 +678,7 @@ async fn handle_ldk_events(
             claim_deadline: _,
             onion_fields: _,
             counterparty_skimmed_fee_msat: _,
+            payment_id: _,
         } => {
             tracing::info!(
                 "EVENT: received payment from payment hash {} of {} millisatoshis",
@@ -702,6 +709,7 @@ async fn handle_ldk_events(
             htlcs: _,
             sender_intended_total_msat: _,
             onion_fields: _,
+            payment_id: _,
         } => {
             tracing::info!(
                 "EVENT: claimed payment from payment hash {} of {} millisatoshis",
@@ -862,6 +870,8 @@ async fn handle_ldk_events(
             outbound_amount_forwarded_rgb,
             inbound_amount_forwarded_rgb,
             payment_hash,
+            prev_node_id: _,
+            next_node_id: _,
         } => {
             let prev_channel_id_str = prev_channel_id.expect("prev_channel_id").to_string();
             let next_channel_id_str = next_channel_id.expect("next_channel_id").to_string();
@@ -1057,6 +1067,7 @@ async fn handle_ldk_events(
             counterparty_node_id,
             channel_capacity_sats: _,
             channel_funding_txo: _,
+            last_local_balance_msat: _,
         } => {
             tracing::info!(
                 "EVENT: Channel {} with counterparty {} closed due to: {:?}",
@@ -1244,7 +1255,7 @@ impl OutputSpender for RgbOutputSpender {
         descriptors.hash(&mut hasher);
         let descriptors_hash = hasher.finish();
         let mut txes = self.txes.lock().unwrap();
-        if let Some(tx) = txes.get(&descriptors_hash) {
+        if let Some(tx) = txes.txes.get(&descriptors_hash) {
             return Ok(tx.clone());
         }
 
@@ -1252,7 +1263,7 @@ impl OutputSpender for RgbOutputSpender {
         let mut vanilla_descriptor = true;
 
         let mut txouts = outputs.clone();
-        let mut asset_info: HashMap<ContractId, (u32, u64, String)> = map![];
+        let mut asset_info: HashMap<ContractId, (u32, u64, String)> = new_hash_map();
 
         for outp in descriptors {
             let outpoint = match outp {
@@ -1302,7 +1313,7 @@ impl OutputSpender for RgbOutputSpender {
                 new_asset = true;
                 let receive_data = self
                     .rgb_wallet_wrapper
-                    .witness_receive(vec![self.proxy_endpoint.clone()])
+                    .witness_receive(None, None, vec![self.proxy_endpoint.clone()], 0)
                     .unwrap();
                 let script_pubkey = script_buf_from_recipient_id(receive_data.recipient_id.clone())
                     .unwrap()
@@ -1356,7 +1367,7 @@ impl OutputSpender for RgbOutputSpender {
             asset_info_map.insert(
                 contract_id,
                 AssetColoringInfo {
-                    output_map: HashMap::from_iter([(vout, amt_rgb)]),
+                    output_map: std::collections::HashMap::from([(vout, amt_rgb)]),
                     static_blinding: None,
                 },
             );
@@ -1427,7 +1438,7 @@ impl OutputSpender for RgbOutputSpender {
             fs::remove_file(&consignment_path).unwrap();
         }
 
-        txes.insert(descriptors_hash, spending_tx.clone());
+        txes.txes.insert(descriptors_hash, spending_tx.clone());
         self.fs_store
             .write("", "", OUTPUT_SPENDER_TXES, &txes.encode())
             .unwrap();
@@ -1695,12 +1706,14 @@ pub(crate) async fn start_ldk(
         .channel_handshake_config
         .negotiate_anchors_zero_fee_htlc_tx = true;
     user_config.manually_accept_inbound_channels = true;
+    // Reduce confirmation requirements for faster channel opening in testing
+    user_config.channel_handshake_config.minimum_depth = 1;
     let mut restarting_node = true;
     let (channel_manager_blockhash, channel_manager) = {
         if let Ok(f) = fs::File::open(ldk_data_dir.join("manager")) {
-            let mut channel_monitor_mut_references = Vec::new();
-            for (_, channel_monitor) in channelmonitors.iter_mut() {
-                channel_monitor_mut_references.push(channel_monitor);
+            let mut channel_monitor_references = Vec::new();
+            for (_, channel_monitor) in channelmonitors.iter() {
+                channel_monitor_references.push(channel_monitor);
             }
             let read_args = ChannelManagerReadArgs::new(
                 keys_manager.clone(),
@@ -1710,9 +1723,13 @@ pub(crate) async fn start_ldk(
                 chain_monitor.clone(),
                 broadcaster.clone(),
                 router.clone(),
+                Arc::new(DefaultMessageRouter::new(
+                    Arc::clone(&network_graph),
+                    Arc::clone(&keys_manager),
+                )),
                 logger.clone(),
                 user_config,
-                channel_monitor_mut_references,
+                channel_monitor_references,
                 ldk_data_dir_path.clone(),
             );
             <(BlockHash, ChannelManager)>::read(&mut BufReader::new(f), read_args).unwrap()
@@ -1731,6 +1748,10 @@ pub(crate) async fn start_ldk(
                 chain_monitor.clone(),
                 broadcaster.clone(),
                 router.clone(),
+                Arc::new(DefaultMessageRouter::new(
+                    Arc::clone(&network_graph),
+                    Arc::clone(&keys_manager),
+                )),
                 logger.clone(),
                 keys_manager.clone(),
                 keys_manager.clone(),
@@ -1945,14 +1966,7 @@ pub(crate) async fn start_ldk(
         );
     }
 
-    // Optional: Initialize the P2PGossipSync
-    let gossip_sync = Arc::new(P2PGossipSync::new(
-        Arc::clone(&network_graph),
-        None,
-        Arc::clone(&logger),
-    ));
-
-    // Initialize the PeerManager
+    // Initialize the ChannelManager first
     let channel_manager: Arc<ChannelManager> = Arc::new(channel_manager);
     let onion_messenger: Arc<OnionMessenger> = Arc::new(OnionMessenger::new(
         Arc::clone(&keys_manager),
@@ -1966,12 +1980,54 @@ pub(crate) async fn start_ldk(
         Arc::clone(&channel_manager),
         Arc::clone(&channel_manager),
         IgnoringMessageHandler {},
+        IgnoringMessageHandler {},
     ));
+
+    // We need to break the circular dependency by creating the objects step by step
+    // First, create a P2PGossipSync without UTXO lookup
+    let temp_gossip_sync = Arc::new(P2PGossipSync::new(
+        Arc::clone(&network_graph),
+        None::<Arc<GossipVerifier>>,
+        Arc::clone(&logger),
+    ));
+
+    // Create a temporary PeerManager for the GossipVerifier constructor
     let mut ephemeral_bytes = [0; 32];
     let current_time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_secs();
+    rand::thread_rng().fill_bytes(&mut ephemeral_bytes);
+    let temp_lightning_msg_handler = MessageHandler {
+        chan_handler: channel_manager.clone(),
+        route_handler: temp_gossip_sync.clone(),
+        onion_message_handler: onion_messenger.clone(),
+        custom_message_handler: IgnoringMessageHandler {},
+    };
+    let temp_peer_manager: Arc<PeerManager> = Arc::new(PeerManager::new(
+        temp_lightning_msg_handler,
+        current_time.try_into().unwrap(),
+        &ephemeral_bytes,
+        logger.clone(),
+        Arc::clone(&keys_manager),
+    ));
+
+    // Now create the GossipVerifier with temporary objects
+    let utxo_lookup = Arc::new(GossipVerifier::new(
+        Arc::clone(&bitcoind_client.bitcoind_rpc_client),
+        lightning_block_sync::gossip::TokioSpawner,
+        temp_gossip_sync.clone(),
+        temp_peer_manager,
+    ));
+
+    // Create the final P2PGossipSync with the GossipVerifier
+    let gossip_sync = Arc::new(P2PGossipSync::new(
+        Arc::clone(&network_graph),
+        Some(utxo_lookup),
+        Arc::clone(&logger),
+    ));
+
+    // Create the final PeerManager with the correct gossip_sync
     rand::thread_rng().fill_bytes(&mut ephemeral_bytes);
     let lightning_msg_handler = MessageHandler {
         chan_handler: channel_manager.clone(),
@@ -1986,15 +2042,6 @@ pub(crate) async fn start_ldk(
         logger.clone(),
         Arc::clone(&keys_manager),
     ));
-
-    // Install a GossipVerifier in in the P2PGossipSync
-    let utxo_lookup = GossipVerifier::new(
-        Arc::clone(&bitcoind_client.bitcoind_rpc_client),
-        lightning_block_sync::gossip::TokioSpawner,
-        Arc::clone(&gossip_sync),
-        Arc::clone(&peer_manager),
-    );
-    gossip_sync.add_utxo_lookup(Some(utxo_lookup));
 
     // ## Running LDK
     // Initialize networking
