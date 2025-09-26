@@ -68,7 +68,7 @@ getrandom = "0.2"
 tonic-build = "0.12"
 
 [features]
-default = []
+default = ["vls"]
 vls = ["vls-core", "vls-persist", "vls-proxy"]
 
 [dev-dependencies]
@@ -88,34 +88,49 @@ tracing-test = "0.2.5"
 [patch.crates-io]
 lightning = { path = "./rust-lightning/lightning" }
 lightning-background-processor = { path = "./rust-lightning/lightning-background-processor"}
+lightning-block-sync = { path = "./rust-lightning/lightning-block-sync" }
+lightning-invoice = { path = "./rust-lightning/lightning-invoice" }
+lightning-net-tokio = { path = "./rust-lightning/lightning-net-tokio" }
+lightning-persister = { path = "./rust-lightning/lightning-persister" }
+lightning-rapid-gossip-sync = { path = "./rust-lightning/lightning-rapid-gossip-sync" }
+lightning-types = { path = "./rust-lightning/lightning-types" }
+lightning-custom-message = { path = "./rust-lightning/lightning-custom-message" }
+lightning-dns-resolver = { path = "./rust-lightning/lightning-dns-resolver" }
+lightning-liquidity = { path = "./rust-lightning/lightning-liquidity" }
+lightning-macros = { path = "./rust-lightning/lightning-macros" }
+lightning-transaction-sync = { path = "./rust-lightning/lightning-transaction-sync" }
+
+[patch."https://github.com/sbn20241/rust-lightning"]
+lightning = { path = "./rust-lightning/lightning" }
 lightning-invoice = { path = "./rust-lightning/lightning-invoice" }
 lightning-types = { path = "./rust-lightning/lightning-types" }
+possiblyrandom = { path = "./rust-lightning/possiblyrandom" }
 
 [dependencies.vls-core]
 features = ["std"]
 git = "https://gitlab.com/dablanahuber/validating-lightning-signer.git"
-rev = "36ad8506"
+branch = "feature/rgb_lightning_integration"
 optional = true
 # path = "../vls/vls-core"
 
 [dependencies.vls-persist]
 features = ["redb-kvv"]
 git = "https://gitlab.com/dablanahuber/validating-lightning-signer.git"
-rev = "36ad8506"
+branch = "feature/rgb_lightning_integration"
 optional = true
 # path = "../vls/vls-persist"
 
 [dependencies.vls-proxy]
 features = ["developer"]
 git = "https://gitlab.com/dablanahuber/validating-lightning-signer.git"
-rev = "36ad8506"
+branch = "feature/rgb_lightning_integration"
 optional = true
 # path = "../vls/vls-proxy"
 
 [dependencies.vls-protocol]
 features = ["developer"]
 git = "https://gitlab.com/dablanahuber/validating-lightning-signer.git"
-rev = "36ad8506"
+branch = "feature/rgb_lightning_integration"
 optional = true
 # path = "../vls/vls-proxy"
 

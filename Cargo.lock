@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "addr2line"
-version = "0.24.2"
+version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dfbe277e56a376000877090da837660b4427aad530e3028d44e0bffe4f89a1c1"
+checksum = "1b5d307320b3181d6d7954e663bd7c774a838b8220fe0593c86d9fb09f498b4b"
 dependencies = [
  "gimli",
 ]
@@ -115,7 +115,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "695e433882668b55b3d7fb0ba22bf9be66a91abe30d7ca1f1a774f8b90b4db4c"
 dependencies = [
  "amplify_num",
-heck "bitflags 2.9.4",
+ "bitflags 2.9.4",
  "wasm-bindgen",
 ]
 
@@ -364,7 +364,7 @@ dependencies = [
  "polling 3.11.0",
  "rustix 1.1.2",
  "slab",
- "windows-sys 0.61.0",
+ "windows-sys 0.61.1",
 ]
 
 [[package]]
@@ -476,9 +476,9 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "aws-lc-rs"
-version = "1.14.0"
+version = "1.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94b8ff6c09cd57b16da53641caa860168b88c172a5ee163b0288d3d6eea12786"
+checksum = "879b6c89592deb404ba4dc0ae6b58ffd1795c78991cbb5b8bc441c48a070440d"
 dependencies = [
  "aws-lc-sys",
  "zeroize",
@@ -486,15 +486,16 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-sys"
-version = "0.31.0"
+version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e44d16778acaf6a9ec9899b92cebd65580b83f685446bf2e1f5d3d732f99dcd"
+checksum = "ee74396bee4da70c2e27cf94762714c911725efe69d9e2672f998512a67a4ce4"
 dependencies = [
  "bindgen",
  "cc",
  "cmake",
  "dunce",
  "fs_extra",
+ "libloading",
 ]
 
 [[package]]
@@ -577,21 +578,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "backon"
-version = "1.5.2"
+name = "backoff"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "592277618714fbcecda9a02ba7a8781f319d26532a88553bbacc77ba5d2b3a8d"
+checksum = "b62ddb9cb1ec0a098ad4bbf9344d0713fa193ae1a80af55febcff2627b6a00c1"
 dependencies = [
- "fastrand 2.3.0",
- "gloo-timers",
+ "futures-core",
+ "getrandom 0.2.16",
+ "instant",
+ "pin-project-lite",
+ "rand 0.8.5",
  "tokio",
 ]
 
 [[package]]
 name = "backtrace"
-version = "0.3.75"
+version = "0.3.76"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6806a6321ec58106fea15becdad98371e28d92ccbc7c8f1b3b6dd724fe8f1002"
+checksum = "bb531853791a215d7c62a30daf0dde835f381ab5de4589cfe7c649d2cbe92bd6"
 dependencies = [
  "addr2line",
  "cfg-if",
@@ -599,7 +603,7 @@ dependencies = [
  "miniz_oxide",
  "object",
  "rustc-demangle",
- "windows-targets 0.52.6",
+ "windows-link",
 ]
 
 [[package]]
@@ -993,8 +997,8 @@ dependencies = [
 
 [[package]]
 name = "bolt-derive"
-version = "0.4.0"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+version = "0.3.2"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?branch=feature%2Frgb_lightning_integration#520da58915a85f3d9c0d6c67dda485bd6543e78e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1187,9 +1191,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.38"
+version = "1.2.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80f41ae168f955c12fb8960b057d70d0ca153fb83182b57d86380443527be7e9"
+checksum = "e1354349954c6fc9cb0deab020f27f783cf0b604e8bb754dc4658ecf0d29c35f"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -1253,7 +1257,7 @@ dependencies = [
  "num-traits",
  "serde",
  "wasm-bindgen",
- "windows-link 0.2.0",
+ "windows-link",
 ]
 
 [[package]]
@@ -1514,7 +1518,7 @@ checksum = "881c5d0a13b2f1498e2306e82cbada78390e152d4b1378fb28a84f4dcd0dc4f3"
 dependencies = [
  "dispatch",
  "nix 0.30.1",
- "windows-sys 0.61.0",
+ "windows-sys 0.61.1",
 ]
 
 [[package]]
@@ -1616,12 +1620,12 @@ dependencies = [
 
 [[package]]
 name = "deranged"
-version = "0.4.0"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c9e6a11ca8224451684bc0d7d5a7adbf8f2fd6887261a1cfc3c0432f9d4068e"
+checksum = "a41953f86f8a05768a6cda24def994fd2f424b04ec5c719cf89989779f199071"
 dependencies = [
  "powerfmt",
- "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -1849,7 +1853,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.0",
+ "windows-sys 0.61.1",
 ]
 
 [[package]]
@@ -2182,9 +2186,9 @@ dependencies = [
 
 [[package]]
 name = "gimli"
-version = "0.31.1"
+version = "0.32.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07e28edb80900c19c28f1072f2e8aeca7fa06b23cd4169cefe1af5aa3260783f"
+checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 
 [[package]]
 name = "glob"
@@ -2824,9 +2828,9 @@ dependencies = [
 
 [[package]]
 name = "js-sys"
-version = "0.3.80"
+version = "0.3.81"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "852f13bec5eba4ba9afbeb93fd7c13fe56147f055939ae21c43a29a0ecb2702e"
+checksum = "ec48937a97411dcb524a265206ccd4c90bb711fca92b2792c407f268825b9305"
 dependencies = [
  "once_cell",
  "wasm-bindgen",
@@ -2940,18 +2944,18 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.175"
+version = "0.2.176"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a82ae493e598baaea5209805c49bbf2ea7de956d50d7da0da1164f9c6d28543"
+checksum = "58f929b4d672ea937a23a1ab494143d968337a5f47e56d0815df1e0890ddf174"
 
 [[package]]
 name = "libloading"
-version = "0.8.9"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
+checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
- "windows-link 0.2.0",
+ "windows-targets 0.53.4",
 ]
 
 [[package]]
@@ -2992,8 +2996,8 @@ dependencies = [
  "futures",
  "hashbrown 0.13.2",
  "libm",
- "lightning-invoice 0.33.1",
- "lightning-types 0.2.0",
+ "lightning-invoice",
+ "lightning-types",
  "musig2",
  "possiblyrandom",
  "regex",
@@ -3017,8 +3021,6 @@ dependencies = [
 [[package]]
 name = "lightning-block-sync"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "baab5bdee174a2047d939a4ca0dc2e1c23caa0f8cab0b4380aed77a20e116f1e"
 dependencies = [
  "bitcoin",
  "chunked_transfer",
@@ -3033,26 +3035,13 @@ version = "0.33.1"
 dependencies = [
  "bech32 0.11.0",
  "bitcoin",
- "lightning-types 0.2.0",
+ "lightning-types",
  "rgb-lib",
-]
-
-[[package]]
-name = "lightning-invoice"
-version = "0.33.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11209f386879b97198b2bfc9e9c1e5d42870825c6bd4376f17f95357244d6600"
-dependencies = [
- "bech32 0.11.0",
- "bitcoin",
- "lightning-types 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "lightning-net-tokio"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb6a6c93b1e592f1d46bb24233cac4a33b4015c99488ee229927a81d16226e45"
 dependencies = [
  "bitcoin",
  "lightning",
@@ -3080,8 +3069,8 @@ dependencies = [
 
 [[package]]
 name = "lightning-storage-server"
-version = "0.5.0"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+version = "0.4.0"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?branch=feature%2Frgb_lightning_integration#520da58915a85f3d9c0d6c67dda485bd6543e78e"
 dependencies = [
  "bitcoin_hashes 0.14.0",
  "hex",
@@ -3097,15 +3086,6 @@ dependencies = [
 [[package]]
 name = "lightning-types"
 version = "0.2.0"
-dependencies = [
- "bitcoin",
-]
-
-[[package]]
-name = "lightning-types"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2cd84d4e71472035903e43caded8ecc123066ce466329ccd5ae537a8d5488c7"
 dependencies = [
  "bitcoin",
 ]
@@ -3205,9 +3185,9 @@ dependencies = [
 
 [[package]]
 name = "memchr"
-version = "2.7.5"
+version = "2.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
+checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 
 [[package]]
 name = "memoffset"
@@ -3457,9 +3437,9 @@ dependencies = [
 
 [[package]]
 name = "object"
-version = "0.36.7"
+version = "0.37.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62948e14d923ea95ea2c7c86c71013138b66525b86bdc08d2dcc262bdb497b87"
+checksum = "ff76201f031d8863c38aa7f905eca4f53abbfa15f609db4277d44cd8938f33fe"
 dependencies = [
  "memchr",
 ]
@@ -3752,7 +3732,7 @@ dependencies = [
  "hermit-abi 0.5.2",
  "pin-project-lite",
  "rustix 1.1.2",
- "windows-sys 0.61.0",
+ "windows-sys 0.61.1",
 ]
 
 [[package]]
@@ -4124,9 +4104,9 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.11.2"
+version = "1.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23d7fd106d8c02486a8d64e778353d1cffe08ce79ac2e82f540c86d0facf6912"
+checksum = "8b5288124840bee7b386bc413c487869b360b2b4ec421ea56425128692f2a82c"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -4136,9 +4116,9 @@ dependencies = [
 
 [[package]]
 name = "regex-automata"
-version = "0.4.10"
+version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b9458fa0bfeeac22b5ca447c63aaf45f28439a709ccd244698632f9aa6394d6"
+checksum = "833eb9ce86d40ef33cb1306d8accf7bc8ec2bfea4355cbdebb3df68b40925cad"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -4321,7 +4301,7 @@ dependencies = [
  "lightning",
  "lightning-background-processor",
  "lightning-block-sync",
- "lightning-invoice 0.33.1",
+ "lightning-invoice",
  "lightning-net-tokio",
  "lightning-persister",
  "lightning-rapid-gossip-sync",
@@ -4514,7 +4494,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.61.0",
+ "windows-sys 0.61.1",
 ]
 
 [[package]]
@@ -4622,7 +4602,7 @@ version = "0.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "891d81b926048e76efe18581bf793546b4c0eaf8448d72be8de2bbee5fd166e1"
 dependencies = [
- "windows-sys 0.61.0",
+ "windows-sys 0.61.1",
 ]
 
 [[package]]
@@ -4894,9 +4874,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.226"
+version = "1.0.227"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0dca6411025b24b60bfa7ec1fe1f8e710ac09782dca409ee8237ba74b51295fd"
+checksum = "80ece43fc6fbed4eb5392ab50c07334d3e577cbf40997ee896fe7af40bba4245"
 dependencies = [
  "serde_core",
  "serde_derive",
@@ -4916,18 +4896,18 @@ dependencies = [
 
 [[package]]
 name = "serde_core"
-version = "1.0.226"
+version = "1.0.227"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba2ba63999edb9dac981fb34b3e5c0d111a69b0924e253ed29d83f7c99e966a4"
+checksum = "7a576275b607a2c86ea29e410193df32bc680303c82f31e275bbfcafe8b33be5"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.226"
+version = "1.0.227"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8db53ae22f34573731bafa1db20f04027b2d25e02d8205921b569171699cdb33"
+checksum = "51e694923b8824cf0e9b382adf0f60d4e05f348f357b38833a3fa5ed7c2ede04"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5559,15 +5539,15 @@ checksum = "f764005d11ee5f36500a149ace24e00e3da98b0158b3e2d53a7495660d3f4d60"
 
 [[package]]
 name = "tempfile"
-version = "3.22.0"
+version = "3.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84fa4d11fadde498443cca10fd3ac23c951f0dc59e080e9f4b93d4df4e4eea53"
+checksum = "2d31c77bdf42a745371d260a26ca7163f1e0924b64afa0b688e61b5a9fa02f16"
 dependencies = [
  "fastrand 2.3.0",
  "getrandom 0.3.3",
  "once_cell",
  "rustix 1.1.2",
- "windows-sys 0.61.0",
+ "windows-sys 0.61.1",
 ]
 
 [[package]]
@@ -5576,7 +5556,7 @@ version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2111ef44dae28680ae9752bb89409e7310ca33a8c621ebe7b106cf5c928b3ac0"
 dependencies = [
- "windows-sys 0.61.0",
+ "windows-sys 0.61.1",
 ]
 
 [[package]]
@@ -5639,9 +5619,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.41"
+version = "0.3.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a7619e19bc266e0f9c5e6686659d394bc57973859340060a69221e57dbc0c40"
+checksum = "91e7d9e3bb61134e77bde20dd4825b97c010155709965fedf0f49bb138e52a9d"
 dependencies = [
  "deranged",
  "itoa",
@@ -5654,15 +5634,15 @@ dependencies = [
 
 [[package]]
 name = "time-core"
-version = "0.1.4"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9e9a38711f559d9e3ce1cdb06dd7c5b8ea546bc90052da6d06bb76da74bb07c"
+checksum = "40868e7c1d2f0b8d73e4a8c7f0ff63af4f6d19be117e90bd73eb1d62cf831c6b"
 
 [[package]]
 name = "time-macros"
-version = "0.2.22"
+version = "0.2.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3526739392ec93fd8b359c8e98514cb3e8e021beb4e5f597b00a0221f8ed8a49"
+checksum = "30cfb0125f12d9c277f35663a0a33f8c30190f4e4574868a330595412d34ebf3"
 dependencies = [
  "num-conv",
  "time-core",
@@ -6170,17 +6150,16 @@ dependencies = [
 
 [[package]]
 name = "vls-common"
-version = "0.14.0-rc.1"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+version = "0.13.0"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?branch=feature%2Frgb_lightning_integration#520da58915a85f3d9c0d6c67dda485bd6543e78e"
 dependencies = [
- "bitcoin",
  "hex",
 ]
 
 [[package]]
 name = "vls-core"
-version = "0.14.0-rc.1"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+version = "0.13.0"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?branch=feature%2Frgb_lightning_integration#520da58915a85f3d9c0d6c67dda485bd6543e78e"
 dependencies = [
  "ahash",
  "anyhow",
@@ -6194,7 +6173,7 @@ dependencies = [
  "hex",
  "itertools 0.10.5",
  "lightning",
- "lightning-invoice 0.33.2",
+ "lightning-invoice",
  "log",
  "scopeguard",
  "serde",
@@ -6209,8 +6188,8 @@ dependencies = [
 
 [[package]]
 name = "vls-frontend"
-version = "0.14.0-rc.1"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+version = "0.13.0"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?branch=feature%2Frgb_lightning_integration#520da58915a85f3d9c0d6c67dda485bd6543e78e"
 dependencies = [
  "async-trait",
  "lightning-storage-server",
@@ -6224,8 +6203,8 @@ dependencies = [
 
 [[package]]
 name = "vls-persist"
-version = "0.14.0-rc.1"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+version = "0.13.0"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?branch=feature%2Frgb_lightning_integration#520da58915a85f3d9c0d6c67dda485bd6543e78e"
 dependencies = [
  "hex",
  "log",
@@ -6243,17 +6222,17 @@ dependencies = [
 [[package]]
 name = "vls-policy-derive"
 version = "0.1.0"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?branch=feature%2Frgb_lightning_integration#520da58915a85f3d9c0d6c67dda485bd6543e78e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.106",
+ "syn 1.0.109",
 ]
 
 [[package]]
 name = "vls-protocol"
-version = "0.14.0-rc.1"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+version = "0.13.0"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?branch=feature%2Frgb_lightning_integration#520da58915a85f3d9c0d6c67dda485bd6543e78e"
 dependencies = [
  "as-any",
  "bitcoin-consensus-derive",
@@ -6267,8 +6246,8 @@ dependencies = [
 
 [[package]]
 name = "vls-protocol-client"
-version = "0.14.0-rc.1"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+version = "0.13.0"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?branch=feature%2Frgb_lightning_integration#520da58915a85f3d9c0d6c67dda485bd6543e78e"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6281,25 +6260,24 @@ dependencies = [
 
 [[package]]
 name = "vls-protocol-signer"
-version = "0.14.0-rc.1"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+version = "0.13.0"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?branch=feature%2Frgb_lightning_integration#520da58915a85f3d9c0d6c67dda485bd6543e78e"
 dependencies = [
  "bit-vec",
  "log",
- "vls-common",
  "vls-core",
  "vls-protocol",
 ]
 
 [[package]]
 name = "vls-proxy"
-version = "0.14.0-rc.1"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+version = "0.13.0"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?branch=feature%2Frgb_lightning_integration#520da58915a85f3d9c0d6c67dda485bd6543e78e"
 dependencies = [
  "anyhow",
  "async-stream",
  "async-trait",
- "backon",
+ "backoff",
  "clap",
  "ctrlc",
  "futures",
@@ -6326,8 +6304,8 @@ dependencies = [
 
 [[package]]
 name = "vls-util"
-version = "0.14.0-rc.1"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+version = "0.13.0"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?branch=feature%2Frgb_lightning_integration#520da58915a85f3d9c0d6c67dda485bd6543e78e"
 dependencies = [
  "fern",
  "log",
@@ -6342,8 +6320,8 @@ dependencies = [
 
 [[package]]
 name = "vlsd"
-version = "0.14.0-rc.1"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=36ad8506#36ad8506486d3a98011f8b683fff0340eb9b33f9"
+version = "0.13.0"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?branch=feature%2Frgb_lightning_integration#520da58915a85f3d9c0d6c67dda485bd6543e78e"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -6357,7 +6335,6 @@ dependencies = [
  "log",
  "prost",
  "serde",
- "serde_json",
  "tempfile",
  "thiserror 1.0.69",
  "time",
@@ -6372,7 +6349,6 @@ dependencies = [
  "triggered",
  "txoo-bitcoind-client",
  "url",
- "vls-common",
  "vls-core",
  "vls-frontend",
  "vls-persist",
@@ -6438,9 +6414,9 @@ checksum = "b8dad83b4f25e74f184f64c43b150b91efe7647395b42289f38e50566d82855b"
 
 [[package]]
 name = "wasm-bindgen"
-version = "0.2.103"
+version = "0.2.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab10a69fbd0a177f5f649ad4d8d3305499c42bab9aef2f7ff592d0ec8f833819"
+checksum = "c1da10c01ae9f1ae40cbfac0bac3b1e724b320abfcf52229f80b547c0d250e2d"
 dependencies = [
  "cfg-if",
  "once_cell",
@@ -6451,9 +6427,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-backend"
-version = "0.2.103"
+version = "0.2.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bb702423545a6007bbc368fde243ba47ca275e549c8a28617f56f6ba53b1d1c"
+checksum = "671c9a5a66f49d8a47345ab942e2cb93c7d1d0339065d4f8139c486121b43b19"
 dependencies = [
  "bumpalo",
  "log",
@@ -6465,9 +6441,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-futures"
-version = "0.4.53"
+version = "0.4.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0b221ff421256839509adbb55998214a70d829d3a28c69b4a6672e9d2a42f67"
+checksum = "7e038d41e478cc73bae0ff9b36c60cff1c98b8f38f8d7e8061e79ee63608ac5c"
 dependencies = [
  "cfg-if",
  "js-sys",
@@ -6478,9 +6454,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro"
-version = "0.2.103"
+version = "0.2.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc65f4f411d91494355917b605e1480033152658d71f722a90647f56a70c88a0"
+checksum = "7ca60477e4c59f5f2986c50191cd972e3a50d8a95603bc9434501cf156a9a119"
 dependencies = [
  "quote",
  "wasm-bindgen-macro-support",
@@ -6488,9 +6464,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro-support"
-version = "0.2.103"
+version = "0.2.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffc003a991398a8ee604a401e194b6b3a39677b3173d6e74495eb51b82e99a32"
+checksum = "9f07d2f20d4da7b26400c9f4a0511e6e0345b040694e8a75bd41d578fa4421d7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6501,9 +6477,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-shared"
-version = "0.2.103"
+version = "0.2.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "293c37f4efa430ca14db3721dfbe48d8c33308096bd44d80ebaa775ab71ba1cf"
+checksum = "bad67dc8b2a1a6e5448428adec4c3e84c43e561d8c9ee8a9e5aabeb193ec41d1"
 dependencies = [
  "unicode-ident",
 ]
@@ -6523,9 +6499,9 @@ dependencies = [
 
 [[package]]
 name = "web-sys"
-version = "0.3.80"
+version = "0.3.81"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbe734895e869dc429d78c4b433f8d17d95f8d05317440b4fad5ab2d33e596dc"
+checksum = "9367c417a924a74cae129e6a2ae3b47fabb1f8995595ab474029da749a8be120"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
@@ -6597,7 +6573,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.0",
+ "windows-sys 0.61.1",
 ]
 
 [[package]]
@@ -6608,22 +6584,22 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windows-core"
-version = "0.62.0"
+version = "0.62.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57fe7168f7de578d2d8a05b07fd61870d2e73b4020e9f49aa00da8471723497c"
+checksum = "6844ee5416b285084d3d3fffd743b925a6c9385455f64f6d4fa3031c4c2749a9"
 dependencies = [
  "windows-implement",
  "windows-interface",
- "windows-link 0.2.0",
+ "windows-link",
  "windows-result",
  "windows-strings",
 ]
 
 [[package]]
 name = "windows-implement"
-version = "0.60.0"
+version = "0.60.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a47fddd13af08290e67f4acabf4b459f647552718f683a7b415d290ac744a836"
+checksum = "edb307e42a74fb6de9bf3a02d9712678b22399c87e6fa869d6dfcd8c1b7754e0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6632,20 +6608,14 @@ dependencies = [
 
 [[package]]
 name = "windows-interface"
-version = "0.59.1"
+version = "0.59.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd9211b69f8dcdfa817bfd14bf1c97c9188afa36f4750130fcdf3f400eca9fa8"
+checksum = "c0abd1ddbc6964ac14db11c7213d6532ef34bd9aa042c2e5935f59d7908b46a5"
 dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.106",
 ]
-
-[[package]]
-name = "windows-link"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e6ad25900d524eaabdbbb96d20b4311e1e7ae1699af4fb28c17ae66c80d798a"
 
 [[package]]
 name = "windows-link"
@@ -6659,7 +6629,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7084dcc306f89883455a206237404d3eaf961e5bd7e0f312f7c91f57eb44167f"
 dependencies = [
- "windows-link 0.2.0",
+ "windows-link",
 ]
 
 [[package]]
@@ -6668,7 +6638,7 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7218c655a553b0bed4426cf54b20d7ba363ef543b52d515b3e48d7fd55318dda"
 dependencies = [
- "windows-link 0.2.0",
+ "windows-link",
 ]
 
 [[package]]
@@ -6704,16 +6674,16 @@ version = "0.60.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2f500e4d28234f72040990ec9d39e3a6b950f9f22d3dba18416c35882612bcb"
 dependencies = [
- "windows-targets 0.53.3",
+ "windows-targets 0.53.4",
 ]
 
 [[package]]
 name = "windows-sys"
-version = "0.61.0"
+version = "0.61.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e201184e40b2ede64bc2ea34968b28e33622acdbbf37104f0e4a33f7abe657aa"
+checksum = "6f109e41dd4a3c848907eb83d5a42ea98b3769495597450cf6d153507b166f0f"
 dependencies = [
- "windows-link 0.2.0",
+ "windows-link",
 ]
 
 [[package]]
@@ -6749,11 +6719,11 @@ dependencies = [
 
 [[package]]
 name = "windows-targets"
-version = "0.53.3"
+version = "0.53.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5fe6031c4041849d7c496a8ded650796e7b6ecc19df1a431c1a363342e5dc91"
+checksum = "2d42b7b7f66d2a06854650af09cfdf8713e427a439c97ad65a6375318033ac4b"
 dependencies = [
- "windows-link 0.1.3",
+ "windows-link",
  "windows_aarch64_gnullvm 0.53.0",
  "windows_aarch64_msvc 0.53.0",
  "windows_i686_gnu 0.53.0",
@@ -7081,3 +7051,23 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
+
+[[patch.unused]]
+name = "lightning-custom-message"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "lightning-dns-resolver"
+version = "0.2.0"
+
+[[patch.unused]]
+name = "lightning-liquidity"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "lightning-macros"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "lightning-transaction-sync"
+version = "0.1.0"

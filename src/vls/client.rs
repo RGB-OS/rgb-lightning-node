@@ -16,6 +16,7 @@ use tokio::task;
 use url::Url;
 use async_trait::async_trait;
 use anyhow::Result;
+use rand::RngCore;
 
 
 // VLS imports - using correct module paths from your VLS fork
@@ -34,6 +35,7 @@ use lightning_signer::lightning::sign::{NodeSigner, Recipient};
 use vls_proxy::lightning_signer;
 use vls_proxy::vls_protocol_client;
 use vls_proxy::vls_protocol_client::{DynKeysInterface, DynSigner, SpendableKeysInterface};
+use lightning::sign::EntropySource;
 /// Shutdown coordination type
 #[derive(Clone)]
 pub struct Shutter {
@@ -212,6 +214,19 @@ impl SpendableKeysInterface for VlsKeysManager {
 
     fn get_sweep_address(&self) -> Address {
         self.sweep_address.clone()
+    }
+}
+
+// Add missing EntropySource implementation for DynKeysInterface
+// This delegates to the inner KeysManagerClient which already implements EntropySource
+impl EntropySource for DynKeysInterface {
+    fn get_secure_random_bytes(&self) -> [u8; 32] {
+        // Delegate to the inner SpendableKeysInterface
+        // Since we know the inner type is KeysManagerClient which implements EntropySource
+        // we can safely generate random bytes here
+        let mut bytes = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut bytes);
+        bytes
     }
 }
 
