@@ -114,6 +114,9 @@ pub enum APIError {
     #[error("Invalid asset ID: {0}")]
     InvalidAssetID(String),
 
+    #[error("Invalid hex bytes")]
+    InvalidAssetIDBytes,
+
     #[error("Invalid assignment")]
     InvalidAssignment,
 
@@ -138,6 +141,9 @@ pub enum APIError {
     #[error("Invalid fee rate: {0}")]
     InvalidFeeRate(String),
 
+    #[error("Invalid hex string: {0}")]
+    InvalidHexString(String),
+
     #[error("Invalid indexer: {0}")]
     InvalidIndexer(String),
 
@@ -158,6 +164,9 @@ pub enum APIError {
 
     #[error("Invalid payment hash: {0}")]
     InvalidPaymentHash(String),
+
+    #[error("Invalid payment preimage")]
+    InvalidPaymentPreimage,
 
     #[error("Invalid payment secret")]
     InvalidPaymentSecret,
@@ -203,6 +212,9 @@ pub enum APIError {
 
     #[error("Invalid transport endpoints: {0}")]
     InvalidTransportEndpoints(String),
+
+    #[error("Invalid webhook URL: {0}")]
+    InvalidWebhookUrl(String),
 
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),
@@ -410,6 +422,7 @@ impl IntoResponse for APIError {
             | APIError::InvalidAnnounceAddresses(_)
             | APIError::InvalidAnnounceAlias(_)
             | APIError::InvalidAssetID(_)
+            | APIError::InvalidAssetIDBytes
             | APIError::InvalidAssignment
             | APIError::InvalidAttachments(_)
             | APIError::InvalidBackupPath
@@ -418,6 +431,7 @@ impl IntoResponse for APIError {
             | APIError::InvalidDetails(_)
             | APIError::InvalidEstimationBlocks
             | APIError::InvalidFeeRate(_)
+            | APIError::InvalidHexString(_)
             | APIError::InvalidInvoice(_)
             | APIError::InvalidMediaDigest
             | APIError::InvalidName(_)
@@ -425,6 +439,7 @@ impl IntoResponse for APIError {
             | APIError::InvalidOnionData(_)
             | APIError::InvalidPassword(_)
             | APIError::InvalidPaymentHash(_)
+            | APIError::InvalidPaymentPreimage
             | APIError::InvalidPaymentSecret
             | APIError::InvalidPeerInfo(_)
             | APIError::InvalidPrecision(_)
@@ -437,6 +452,7 @@ impl IntoResponse for APIError {
             | APIError::InvalidTlvType(_)
             | APIError::InvalidTransportEndpoint(_)
             | APIError::InvalidTransportEndpoints(_)
+            | APIError::InvalidWebhookUrl(_)
             | APIError::MediaFileEmpty
             | APIError::MediaFileNotProvided
             | APIError::MissingSwapPaymentPreimage
