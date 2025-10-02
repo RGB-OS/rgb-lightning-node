@@ -3,13 +3,13 @@ name: Build and Push Docker Image to ECR
 on:
   push:
     branches:
-      - master  # Trigger the build-and-push job on push to master
+      - test_build  # Trigger the build-and-push job on push to master
   workflow_dispatch:  # Allow manual triggering of the retag-and-push job
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master'  # Only run on the master branch
+    if: github.ref == 'refs/heads/test_build'  # Only run on the master branch
 
     steps:
     - name: Checkout code
