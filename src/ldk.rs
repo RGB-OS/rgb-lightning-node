@@ -87,7 +87,22 @@ use tokio::sync::watch::Sender;
 use tokio::task::JoinHandle;
 
 #[cfg(feature = "vls")]
-use vls_proxy::vls_protocol_client::{DynKeysInterface, DynSigner, SpendableKeysInterface};
+use vls_proxy::vls_protocol_client::{DynSigner, SpendableKeysInterface};
+
+// Type aliases to make the code generic over VLS vs standard Lightning
+#[cfg(feature = "vls")]
+pub(crate) type AppKeysManager = Arc<DynKeysInterface>;
+#[cfg(not(feature = "vls"))]
+pub(crate) type AppKeysManager = Arc<KeysManager>;
+
+#[cfg(feature = "vls")]
+type AppSigner = DynSigner;
+#[cfg(not(feature = "vls"))]
+type AppSigner = InMemorySigner;
+
+// Keep the existing type definitions and handle VLS/non-VLS differences at runtime
+// This is simpler than trying to make everything generic
+
 use crate::bitcoind::BitcoindClient;
 use crate::disk::{
     self, FilesystemLogger, CHANNEL_IDS_FNAME, CHANNEL_PEER_DATA, INBOUND_PAYMENTS_FNAME,
@@ -412,6 +427,26 @@ impl UnlockedAppState {
     }
 }
 
+#[cfg(feature = "vls")]
+pub(crate) type ChainMonitor = chainmonitor::ChainMonitor<
+    DynSigner,
+    Arc<dyn Filter + Send + Sync>,
+    Arc<BitcoindClient>,
+    Arc<BitcoindClient>,
+    Arc<FilesystemLogger>,
+    Arc<
+        MonitorUpdatingPersister<
+            Arc<FilesystemStore>,
+            Arc<FilesystemLogger>,
+            Arc<DynKeysInterface>,
+            Arc<DynKeysInterface>,
+            Arc<BitcoindClient>,
+            Arc<BitcoindClient>,
+        >,
+    >,
+>;
+
+#[cfg(not(feature = "vls"))]
 pub(crate) type ChainMonitor = chainmonitor::ChainMonitor<
     InMemorySigner,
     Arc<dyn Filter + Send + Sync>,
@@ -436,6 +471,18 @@ pub(crate) type GossipVerifier = lightning_block_sync::gossip::GossipVerifier<
     Arc<FilesystemLogger>,
 >;
 
+#[cfg(feature = "vls")]
+pub(crate) type PeerManager = lightning::ln::peer_handler::PeerManager<
+    SocketDescriptor,
+    Arc<ChannelManager>,
+    Arc<P2PGossipSync<Arc<NetworkGraph>, Arc<GossipVerifier>, Arc<FilesystemLogger>>>,
+    Arc<OnionMessenger>,
+    Arc<FilesystemLogger>,
+    IgnoringMessageHandler,
+    Arc<DynKeysInterface>,
+>;
+
+#[cfg(not(feature = "vls"))]
 pub(crate) type PeerManager = SimpleArcPeerManager<
     SocketDescriptor,
     ChainMonitor,
@@ -447,6 +494,17 @@ pub(crate) type PeerManager = SimpleArcPeerManager<
 
 pub(crate) type Scorer = ProbabilisticScorer<Arc<NetworkGraph>, Arc<FilesystemLogger>>;
 
+#[cfg(feature = "vls")]
+pub(crate) type Router = DefaultRouter<
+    Arc<NetworkGraph>,
+    Arc<FilesystemLogger>,
+    Arc<DynKeysInterface>,
+    Arc<RwLock<Scorer>>,
+    ProbabilisticScoringFeeParameters,
+    Scorer,
+>;
+
+#[cfg(not(feature = "vls"))]
 pub(crate) type Router = DefaultRouter<
     Arc<NetworkGraph>,
     Arc<FilesystemLogger>,
@@ -456,14 +514,51 @@ pub(crate) type Router = DefaultRouter<
     Scorer,
 >;
 
+#[cfg(feature = "vls")]
+pub(crate) type ChannelManager = channelmanager::ChannelManager<
+    Arc<ChainMonitor>,
+    Arc<BitcoindClient>,
+    Arc<DynKeysInterface>,
+    Arc<DynKeysInterface>,
+    Arc<DynKeysInterface>,
+    Arc<BitcoindClient>,
+    Arc<Router>,
+    Arc<DefaultMessageRouter<Arc<NetworkGraph>, Arc<FilesystemLogger>, Arc<DynKeysInterface>>>,
+    Arc<FilesystemLogger>,
+>;
+
+#[cfg(not(feature = "vls"))]
 pub(crate) type ChannelManager =
     SimpleArcChannelManager<ChainMonitor, BitcoindClient, BitcoindClient, FilesystemLogger>;
 
 pub(crate) type NetworkGraph = gossip::NetworkGraph<Arc<FilesystemLogger>>;
 
+#[cfg(feature = "vls")]
+pub(crate) type OnionMessenger = lightning::onion_message::messenger::OnionMessenger<
+    Arc<DynKeysInterface>,
+    Arc<DynKeysInterface>,
+    Arc<FilesystemLogger>,
+    Arc<ChannelManager>,
+    Arc<DefaultMessageRouter<Arc<NetworkGraph>, Arc<FilesystemLogger>, Arc<DynKeysInterface>>>,
+    Arc<ChannelManager>,
+    Arc<ChannelManager>,
+    IgnoringMessageHandler,
+    IgnoringMessageHandler,
+>;
+
+#[cfg(not(feature = "vls"))]
 pub(crate) type OnionMessenger =
     SimpleArcOnionMessenger<ChainMonitor, BitcoindClient, BitcoindClient, FilesystemLogger>;
 
+#[cfg(feature = "vls")]
+pub(crate) type BumpTxEventHandler = BumpTransactionEventHandler<
+    Arc<BitcoindClient>,
+    Arc<Wallet<Arc<RgbLibWalletWrapper>, Arc<FilesystemLogger>>>,
+    Arc<DynKeysInterface>,
+    Arc<FilesystemLogger>,
+>;
+
+#[cfg(not(feature = "vls"))]
 pub(crate) type BumpTxEventHandler = BumpTransactionEventHandler<
     Arc<BitcoindClient>,
     Arc<Wallet<Arc<RgbLibWalletWrapper>, Arc<FilesystemLogger>>>,
@@ -479,6 +574,17 @@ impl_writeable_tlv_based!(OutputSpenderTxes, {
     (0, txes, required),
 });
 
+#[cfg(feature = "vls")]
+pub(crate) struct RgbOutputSpender {
+    static_state: Arc<StaticState>,
+    rgb_wallet_wrapper: Arc<RgbLibWalletWrapper>,
+    keys_manager: Arc<DynKeysInterface>,
+    fs_store: Arc<FilesystemStore>,
+    txes: Arc<Mutex<OutputSpenderTxes>>,
+    proxy_endpoint: String,
+}
+
+#[cfg(not(feature = "vls"))]
 pub(crate) struct RgbOutputSpender {
     static_state: Arc<StaticState>,
     rgb_wallet_wrapper: Arc<RgbLibWalletWrapper>,
@@ -1340,14 +1446,27 @@ impl OutputSpender for RgbOutputSpender {
         }
 
         if vanilla_descriptor {
-            return self.keys_manager.spend_spendable_outputs(
-                descriptors.as_ref(),
-                txouts,
-                change_destination_script,
-                feerate_sat_per_1000_weight,
-                locktime,
-                secp_ctx,
-            );
+            #[cfg(feature = "vls")]
+            {
+                return self.keys_manager.spend_spendable_outputs(
+                    descriptors.as_ref(),
+                    txouts,
+                    change_destination_script,
+                    feerate_sat_per_1000_weight,
+                    secp_ctx,
+                ).map_err(|_| ());
+            }
+            #[cfg(not(feature = "vls"))]
+            {
+                return self.keys_manager.spend_spendable_outputs(
+                    descriptors.as_ref(),
+                    txouts,
+                    change_destination_script,
+                    feerate_sat_per_1000_weight,
+                    locktime,
+                    secp_ctx,
+                );
+            }
         }
 
         let feerate_sat_per_1000_weight = FEE_RATE as u32 * 250; // 1 sat/vB = 250 sat/kw
@@ -1545,7 +1664,7 @@ pub(crate) async fn start_ldk(
     #[cfg(feature = "vls")]
     let mut vls_keys_manager: Option<Arc<DynKeysInterface>> = None;
 
-    let (keys_manager, vls_keys_manager) = {
+    let (keys_manager, vls_keys_manager): (AppKeysManager, _) = {
         #[cfg(feature = "vls")]
         {
             tracing::info!("🔐 VLS (Validating Lightning Signer) integration enabled");
@@ -1598,7 +1717,7 @@ pub(crate) async fn start_ldk(
             tracing::info!("   🚀 VLS daemon can now connect to: 127.0.0.1:{}", static_state.vls_port);
             tracing::info!("   💡 Start VLS daemon with: vlsd --network {} --grpc-port {}", network, static_state.vls_port);
             
-            // Create VLS-based KeysManager using DynKeysInterface
+            // Wrap VLS keys interface in DynKeysInterface for trait compatibility
             let vls_km = Arc::new(DynKeysInterface::new(boxed_keys_interface));
             vls_keys_manager = Some(vls_km.clone());
             (vls_km, vls_keys_manager)

@@ -33,7 +33,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::ldk::{ChannelIdsMap, Router};
 
-
 use crate::rgb::{get_rgb_channel_info_optional, RgbLibWalletWrapper};
 use crate::routes::{DEFAULT_FINAL_CLTV_EXPIRY_DELTA, HTLC_MIN_MSAT};
 use crate::{
@@ -103,7 +102,7 @@ pub(crate) struct StaticState {
 pub(crate) struct UnlockedAppState {
     pub(crate) channel_manager: Arc<ChannelManager>,
     pub(crate) inbound_payments: Arc<Mutex<InboundPaymentInfoStorage>>,
-    pub(crate) keys_manager: Arc<KeysManager>,
+    pub(crate) keys_manager: crate::ldk::AppKeysManager,
     pub(crate) network_graph: Arc<NetworkGraph>,
     pub(crate) chain_monitor: Arc<ChainMonitor>,
     pub(crate) onion_messenger: Arc<OnionMessenger>,
@@ -115,7 +114,7 @@ pub(crate) struct UnlockedAppState {
     pub(crate) taker_swaps: Arc<Mutex<SwapMap>>,
     pub(crate) rgb_wallet_wrapper: Arc<RgbLibWalletWrapper>,
     #[cfg(feature = "vls")]
-    pub(crate) vls_keys_manager: Option<Arc<Box<dyn vls_proxy::vls_protocol_client::SpendableKeysInterface<EcdsaSigner = vls_proxy::vls_protocol_client::DynSigner>>>>,
+    pub(crate) vls_keys_manager: Option<crate::ldk::AppKeysManager>,
     #[cfg(not(feature = "vls"))]
     pub(crate) vls_keys_manager: Option<()>,
     pub(crate) router: Arc<Router>,

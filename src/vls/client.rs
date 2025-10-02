@@ -217,18 +217,8 @@ impl SpendableKeysInterface for VlsKeysManager {
     }
 }
 
-// Add missing EntropySource implementation for DynKeysInterface
-// This delegates to the inner KeysManagerClient which already implements EntropySource
-impl EntropySource for DynKeysInterface {
-    fn get_secure_random_bytes(&self) -> [u8; 32] {
-        // Delegate to the inner SpendableKeysInterface
-        // Since we know the inner type is KeysManagerClient which implements EntropySource
-        // we can safely generate random bytes here
-        let mut bytes = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut bytes);
-        bytes
-    }
-}
+// Note: DynKeysInterface should already implement EntropySource through VLS
+// Removed orphan implementation that violated Rust's orphan rules
 
 /// Transport wrapper for SignerPort - bridges VLS transport to signer interface
 struct TransportSignerPort {
