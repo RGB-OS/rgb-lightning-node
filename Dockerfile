@@ -1,5 +1,9 @@
 FROM rust:1.89-slim-bookworm AS builder
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config libssl-dev build-essential ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY rust-lightning ./rust-lightning
