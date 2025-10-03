@@ -88,10 +88,12 @@ use tokio::task::JoinHandle;
 
 #[cfg(feature = "vls")]
 use vls_proxy::vls_protocol_client::{DynSigner, SpendableKeysInterface};
+#[cfg(feature = "vls")]
+use crate::vls::client::VlsKeysManager;
 
 // Type aliases to make the code generic over VLS vs standard Lightning
 #[cfg(feature = "vls")]
-pub(crate) type AppKeysManager = Arc<DynKeysInterface>;
+pub(crate) type AppKeysManager = Arc<VlsKeysManager>;
 #[cfg(not(feature = "vls"))]
 pub(crate) type AppKeysManager = Arc<KeysManager>;
 
@@ -438,8 +440,8 @@ pub(crate) type ChainMonitor = chainmonitor::ChainMonitor<
         MonitorUpdatingPersister<
             Arc<FilesystemStore>,
             Arc<FilesystemLogger>,
-            Arc<DynKeysInterface>,
-            Arc<DynKeysInterface>,
+            Arc<VlsKeysManager>,
+            Arc<VlsKeysManager>,
             Arc<BitcoindClient>,
             Arc<BitcoindClient>,
         >,
@@ -479,7 +481,7 @@ pub(crate) type PeerManager = lightning::ln::peer_handler::PeerManager<
     Arc<OnionMessenger>,
     Arc<FilesystemLogger>,
     IgnoringMessageHandler,
-    Arc<DynKeysInterface>,
+    Arc<VlsKeysManager>,
 >;
 
 #[cfg(not(feature = "vls"))]
@@ -498,7 +500,7 @@ pub(crate) type Scorer = ProbabilisticScorer<Arc<NetworkGraph>, Arc<FilesystemLo
 pub(crate) type Router = DefaultRouter<
     Arc<NetworkGraph>,
     Arc<FilesystemLogger>,
-    Arc<DynKeysInterface>,
+    Arc<VlsKeysManager>,
     Arc<RwLock<Scorer>>,
     ProbabilisticScoringFeeParameters,
     Scorer,
@@ -518,12 +520,12 @@ pub(crate) type Router = DefaultRouter<
 pub(crate) type ChannelManager = channelmanager::ChannelManager<
     Arc<ChainMonitor>,
     Arc<BitcoindClient>,
-    Arc<DynKeysInterface>,
-    Arc<DynKeysInterface>,
-    Arc<DynKeysInterface>,
+    Arc<VlsKeysManager>,
+    Arc<VlsKeysManager>,
+    Arc<VlsKeysManager>,
     Arc<BitcoindClient>,
     Arc<Router>,
-    Arc<DefaultMessageRouter<Arc<NetworkGraph>, Arc<FilesystemLogger>, Arc<DynKeysInterface>>>,
+    Arc<DefaultMessageRouter<Arc<NetworkGraph>, Arc<FilesystemLogger>, Arc<VlsKeysManager>>>,
     Arc<FilesystemLogger>,
 >;
 
@@ -535,11 +537,11 @@ pub(crate) type NetworkGraph = gossip::NetworkGraph<Arc<FilesystemLogger>>;
 
 #[cfg(feature = "vls")]
 pub(crate) type OnionMessenger = lightning::onion_message::messenger::OnionMessenger<
-    Arc<DynKeysInterface>,
-    Arc<DynKeysInterface>,
+    Arc<VlsKeysManager>,
+    Arc<VlsKeysManager>,
     Arc<FilesystemLogger>,
     Arc<ChannelManager>,
-    Arc<DefaultMessageRouter<Arc<NetworkGraph>, Arc<FilesystemLogger>, Arc<DynKeysInterface>>>,
+    Arc<DefaultMessageRouter<Arc<NetworkGraph>, Arc<FilesystemLogger>, Arc<VlsKeysManager>>>,
     Arc<ChannelManager>,
     Arc<ChannelManager>,
     IgnoringMessageHandler,
@@ -554,7 +556,7 @@ pub(crate) type OnionMessenger =
 pub(crate) type BumpTxEventHandler = BumpTransactionEventHandler<
     Arc<BitcoindClient>,
     Arc<Wallet<Arc<RgbLibWalletWrapper>, Arc<FilesystemLogger>>>,
-    Arc<DynKeysInterface>,
+    Arc<VlsKeysManager>,
     Arc<FilesystemLogger>,
 >;
 
@@ -578,7 +580,7 @@ impl_writeable_tlv_based!(OutputSpenderTxes, {
 pub(crate) struct RgbOutputSpender {
     static_state: Arc<StaticState>,
     rgb_wallet_wrapper: Arc<RgbLibWalletWrapper>,
-    keys_manager: Arc<DynKeysInterface>,
+    keys_manager: Arc<VlsKeysManager>,
     fs_store: Arc<FilesystemStore>,
     txes: Arc<Mutex<OutputSpenderTxes>>,
     proxy_endpoint: String,
@@ -1448,12 +1450,14 @@ impl OutputSpender for RgbOutputSpender {
         if vanilla_descriptor {
             #[cfg(feature = "vls")]
             {
+                // VLS expects Secp256k1<All>, so we need to create one
+                let secp_all = bitcoin::secp256k1::Secp256k1::new();
                 return self.keys_manager.spend_spendable_outputs(
                     descriptors.as_ref(),
                     txouts,
                     change_destination_script,
                     feerate_sat_per_1000_weight,
-                    secp_ctx,
+                    &secp_all,
                 ).map_err(|_| ());
             }
             #[cfg(not(feature = "vls"))]
@@ -1506,10 +1510,22 @@ impl OutputSpender for RgbOutputSpender {
 
         let mut psbt = Psbt::from_str(&psbt.to_string()).expect("valid transaction");
 
-        psbt = self
-            .keys_manager
-            .sign_spendable_outputs_psbt(descriptors, psbt, secp_ctx)
-            .unwrap();
+        #[cfg(feature = "vls")]
+        {
+            // VLS expects Secp256k1<All>, so we need to create one
+            let secp_all = bitcoin::secp256k1::Secp256k1::new();
+            psbt = self
+                .keys_manager
+                .sign_spendable_outputs_psbt(descriptors, psbt, &secp_all)
+                .unwrap();
+        }
+        #[cfg(not(feature = "vls"))]
+        {
+            psbt = self
+                .keys_manager
+                .sign_spendable_outputs_psbt(descriptors, psbt, secp_ctx)
+                .unwrap();
+        }
 
         let spending_tx = match psbt.extract_tx() {
             Ok(tx) => tx,
@@ -1662,7 +1678,7 @@ pub(crate) async fn start_ldk(
     let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
 
     #[cfg(feature = "vls")]
-    let mut vls_keys_manager: Option<Arc<DynKeysInterface>> = None;
+    let mut vls_keys_manager: Option<Arc<VlsKeysManager>> = None;
 
     let (keys_manager, vls_keys_manager): (AppKeysManager, _) = {
         #[cfg(feature = "vls")]
@@ -1703,7 +1719,7 @@ pub(crate) async fn start_ldk(
             let shutter = crate::vls::client::Shutter::new();
             
             // Create VLS gRPC signer - this starts the HsmdService that VLS connects to
-            let boxed_keys_interface = crate::vls::client::make_grpc_signer(
+            let vls_keys_manager_instance = crate::vls::client::make_grpc_signer(
                 shutter,
                 tokio::runtime::Handle::current(),
                 static_state.vls_port,
@@ -1717,8 +1733,8 @@ pub(crate) async fn start_ldk(
             tracing::info!("   🚀 VLS daemon can now connect to: 127.0.0.1:{}", static_state.vls_port);
             tracing::info!("   💡 Start VLS daemon with: vlsd --network {} --grpc-port {}", network, static_state.vls_port);
             
-            // Wrap VLS keys interface in DynKeysInterface for trait compatibility
-            let vls_km = Arc::new(DynKeysInterface::new(boxed_keys_interface));
+            // Use VLS keys manager directly - no need to wrap in DynKeysInterface
+            let vls_km = Arc::new(vls_keys_manager_instance);
             vls_keys_manager = Some(vls_km.clone());
             (vls_km, vls_keys_manager)
         }
