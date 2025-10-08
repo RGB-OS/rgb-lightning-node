@@ -323,9 +323,13 @@ pub(crate) async fn do_connect_peer(
     match lightning_net_tokio::connect_outbound(Arc::clone(&peer_manager), pubkey, address).await {
         Some(connection_closed_future) => {
             let mut connection_closed_future = Box::pin(connection_closed_future);
+            let timeout = tokio::time::sleep(Duration::from_secs(30)); // 30 second timeout
+            tokio::pin!(timeout);
+            
             loop {
                 tokio::select! {
                     _ = &mut connection_closed_future => return Err(APIError::FailedPeerConnection),
+                    _ = &mut timeout => return Err(APIError::FailedPeerConnection),
                     _ = tokio::time::sleep(Duration::from_millis(10)) => {},
                 };
                 if peer_manager.peer_by_node_id(&pubkey).is_some() {
