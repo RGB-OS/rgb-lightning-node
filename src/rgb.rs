@@ -384,11 +384,12 @@ impl UnlockedAppState {
 pub(crate) struct RgbLibWalletWrapper {
     pub(crate) wallet: Arc<Mutex<RgbLibWallet>>,
     pub(crate) online: Online,
+    pub(crate) vls_change_address: Option<String>,
 }
 
 impl RgbLibWalletWrapper {
-    pub(crate) fn new(wallet: Arc<Mutex<RgbLibWallet>>, online: Online) -> Self {
-        RgbLibWalletWrapper { wallet, online }
+    pub(crate) fn new(wallet: Arc<Mutex<RgbLibWallet>>, online: Online, vls_change_address: Option<String>) -> Self {
+        RgbLibWalletWrapper { wallet, online, vls_change_address }
     }
 
     pub(crate) fn get_rgb_wallet(&self) -> MutexGuard<'_, RgbLibWallet> {
@@ -457,7 +458,11 @@ impl RgbLibWalletWrapper {
     }
 
     pub(crate) fn get_address(&self) -> Result<String, RgbLibError> {
-        self.get_rgb_wallet().get_address()
+        if let Some(vls_addr) = &self.vls_change_address {
+            Ok(vls_addr.clone())
+        } else {
+            self.get_rgb_wallet().get_address()
+        }
     }
 
     pub(crate) fn get_asset_balance(
@@ -738,7 +743,12 @@ impl RgbLibWalletWrapper {
 
 impl ChangeDestinationSource for RgbLibWalletWrapper {
     fn get_change_destination_script(&self) -> Result<ScriptBuf, ()> {
-        Ok(Address::from_str(&self.get_address().unwrap())
+        let address = if let Some(vls_addr) = &self.vls_change_address {
+            vls_addr.clone()
+        } else {
+            self.get_address().unwrap()
+        };
+        Ok(Address::from_str(&address)
             .unwrap()
             .assume_checked()
             .script_pubkey())
@@ -783,8 +793,13 @@ impl WalletSource for RgbLibWalletWrapper {
     }
 
     fn get_change_script(&self) -> Result<ScriptBuf, ()> {
+        let address = if let Some(vls_addr) = &self.vls_change_address {
+            vls_addr.clone()
+        } else {
+            self.wallet.lock().unwrap().get_address().unwrap()
+        };
         Ok(
-            Address::from_str(&self.wallet.lock().unwrap().get_address().unwrap())
+            Address::from_str(&address)
                 .unwrap()
                 .assume_checked()
                 .script_pubkey(),

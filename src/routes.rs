@@ -1251,14 +1251,18 @@ pub(crate) async fn address(
 ) -> Result<Json<AddressResponse>, APIError> {
     let unlocked_state = state.check_unlocked().await?.clone().unwrap();
 
-    // When VLS is enabled, use the VLS sweep address from the VlsKeysManager
+    // When VLS is enabled, try to get the address from VLS first
     let address = if state.static_state.enable_vls {
         #[cfg(feature = "vls")]
         {
             if let Some(vls_km) = &unlocked_state.vls_keys_manager {
+                // Try to get address from VLS keys manager
                 vls_km.get_sweep_address().to_string()
+            } else if let Some(vls_address) = &state.static_state.vls_sweep_address {
+                // Fall back to static VLS address if VLS keys manager not available
+                vls_address.clone()
             } else {
-                // If VLS keys manager is not available, fall back to RGB address
+                // If no VLS address configured, fall back to RGB address
                 unlocked_state.rgb_get_address()?
             }
         }

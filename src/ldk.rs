@@ -1931,16 +1931,36 @@ pub(crate) async fn start_ldk(
         .clone()
         .to_string_lossy()
         .to_string();
+    let enable_vls = static_state.enable_vls;
     let mut rgb_wallet = tokio::task::spawn_blocking(move || {
+        // When VLS is enabled, we'll use the existing keys for now
+        // The VLS public key will be used later when the channel manager is available
+        let (final_account_xpub_vanilla, final_account_xpub_colored, final_master_fingerprint, final_mnemonic) = 
+            if enable_vls {
+                #[cfg(feature = "vls")]
+                {
+                    // When VLS is enabled, use the same keys but without mnemonic
+                    // TODO: Later we'll update the RGB wallet to use VLS-derived keys
+                    tracing::info!("VLS enabled - using existing keys without mnemonic for VLS compatibility");
+                    (account_xpub_vanilla, account_xpub_colored, master_fingerprint, None)
+                }
+                #[cfg(not(feature = "vls"))]
+                {
+                    (account_xpub_vanilla, account_xpub_colored, master_fingerprint, mnemonic_str)
+                }
+            } else {
+                (account_xpub_vanilla, account_xpub_colored, master_fingerprint, mnemonic_str)
+            };
+
         RgbLibWallet::new(WalletData {
             data_dir,
             bitcoin_network,
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: 1,
-            account_xpub_vanilla: account_xpub_vanilla.to_string(),
-            account_xpub_colored: account_xpub_colored.to_string(),
-            master_fingerprint: master_fingerprint.to_string(),
-            mnemonic: mnemonic_str,
+            account_xpub_vanilla: final_account_xpub_vanilla.to_string(),
+            account_xpub_colored: final_account_xpub_colored.to_string(),
+            master_fingerprint: final_master_fingerprint.to_string(),
+            mnemonic: final_mnemonic,
             vanilla_keychain: None,
             supported_schemas: vec![AssetSchema::Nia, AssetSchema::Cfa, AssetSchema::Uda],
         })
@@ -1979,6 +1999,7 @@ pub(crate) async fn start_ldk(
     let rgb_wallet_wrapper = Arc::new(RgbLibWalletWrapper::new(
         Arc::new(Mutex::new(rgb_wallet)),
         rgb_online.clone(),
+        static_state.vls_sweep_address.clone(),
     ));
 
     // Initialize the OutputSweeper.
@@ -2103,6 +2124,20 @@ pub(crate) async fn start_ldk(
 
     // Initialize the ChannelManager first
     let channel_manager: Arc<ChannelManager> = Arc::new(channel_manager);
+    
+    // Update RGB wallet with VLS keys if VLS is enabled
+    if static_state.enable_vls {
+        #[cfg(feature = "vls")]
+        {
+            let vls_pubkey = channel_manager.get_our_node_id().to_string();
+            tracing::info!("Updating RGB wallet with VLS public key: {}", vls_pubkey);
+            
+            // Update the RGB wallet wrapper with VLS keys
+            // Note: This is a placeholder - the actual implementation would need to recreate the RGB wallet
+            tracing::info!("VLS public key obtained: {}", vls_pubkey);
+            tracing::warn!("TODO: Implement RGB wallet recreation with VLS-derived keys");
+        }
+    }
     let onion_messenger: Arc<OnionMessenger> = Arc::new(OnionMessenger::new(
         Arc::clone(&keys_manager),
         Arc::clone(&keys_manager),
