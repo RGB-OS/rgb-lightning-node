@@ -288,21 +288,62 @@ impl UnlockedAppState {
             {
                 // Parse PSBT for VLS signing
                 if let Ok(psbt) = bitcoin::psbt::Psbt::from_str(&unsigned_psbt) {
-                    // Convert PSBT to descriptors format for VLS
-                    // For now, we'll use a simplified approach
-                    // TODO: Implement proper descriptor extraction from PSBT
-                    let descriptors: Vec<&lightning::sign::SpendableOutputDescriptor> = vec![];
+                    // Extract descriptors from PSBT inputs
+                    let mut descriptors = Vec::new();
                     let secp_ctx = bitcoin::secp256k1::Secp256k1::new();
                     
-                    match vls_km.sign_spendable_outputs_psbt(&descriptors, psbt, &secp_ctx) {
-                        Ok(signed_psbt) => {
-                            return Ok(signed_psbt.to_string());
-                        }
-                        Err(_) => {
-                            // If VLS signing fails, fall back to wallet signing
-                            tracing::warn!("VLS PSBT signing failed, falling back to wallet signing");
+                    tracing::info!("PSBT has {} inputs, extracting descriptors", psbt.unsigned_tx.input.len());
+                    
+                    // Create descriptors for each input in the PSBT
+                    for (i, input) in psbt.inputs.iter().enumerate() {
+                        // Get the outpoint from the transaction
+                        if let Some(outpoint) = psbt.unsigned_tx.input.get(i).map(|tx_input| tx_input.previous_output) {
+                            // Get the witness UTXO from the PSBT input
+                            if let Some(witness_utxo) = &input.witness_utxo {
+                                // Convert bitcoin::OutPoint to lightning::chain::transaction::OutPoint
+                                let lightning_outpoint = lightning::chain::transaction::OutPoint {
+                                    txid: bitcoin::Txid::from_byte_array(outpoint.txid.to_byte_array()),
+                                    index: outpoint.vout as u16,
+                                };
+                                
+                                // Create a StaticOutput descriptor for this input
+                                let descriptor = lightning::sign::SpendableOutputDescriptor::StaticOutput {
+                                    outpoint: lightning_outpoint,
+                                    output: witness_utxo.clone(),
+                                    channel_keys_id: Some([0u8; 32]), // Default channel keys
+                                };
+                                descriptors.push(descriptor);
+                                
+                                tracing::debug!("Created descriptor for input {}: outpoint={}, value={}", 
+                                             i, outpoint, witness_utxo.value);
+                            } else {
+                                // If no witness UTXO, we can't create a proper descriptor
+                                tracing::error!("PSBT input {} missing witness_utxo, falling back to wallet signing", i);
+                                return self.rgb_wallet_wrapper.sign_psbt(unsigned_psbt);
+                            }
                         }
                     }
+                    
+                    // Convert to references for VLS
+                    let descriptor_refs: Vec<&lightning::sign::SpendableOutputDescriptor> = 
+                        descriptors.iter().collect();
+                    
+                    tracing::info!("Attempting VLS PSBT signing with {} descriptors for {} inputs", 
+                                 descriptor_refs.len(), psbt.unsigned_tx.input.len());
+                    
+                    match vls_km.sign_spendable_outputs_psbt(&descriptor_refs, psbt, &secp_ctx) {
+                        Ok(signed_psbt) => {
+                            tracing::info!("VLS PSBT signing successful");
+                            return Ok(signed_psbt.to_string());
+                        }
+                        Err(e) => {
+                            tracing::error!("VLS PSBT signing failed: {:?}, falling back to wallet signing", e);
+                            return self.rgb_wallet_wrapper.sign_psbt(unsigned_psbt);
+                        }
+                    }
+                } else {
+                    tracing::error!("Failed to parse PSBT for VLS signing, falling back to wallet signing");
+                    return self.rgb_wallet_wrapper.sign_psbt(unsigned_psbt);
                 }
             }
         }

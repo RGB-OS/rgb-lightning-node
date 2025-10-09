@@ -231,6 +231,10 @@ impl EntropySource for VlsKeysManager {
 
 // Implement additional methods needed by Lightning
 impl VlsKeysManager {
+    pub fn get_sweep_address(&self) -> &Address {
+        &self.sweep_address
+    }
+
     pub fn get_node_secret_key(&self) -> bitcoin::secp256k1::SecretKey {
         // For now, return a placeholder secret key
         // In a full implementation, this should delegate to VLS

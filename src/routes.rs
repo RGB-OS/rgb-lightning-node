@@ -1251,7 +1251,24 @@ pub(crate) async fn address(
 ) -> Result<Json<AddressResponse>, APIError> {
     let unlocked_state = state.check_unlocked().await?.clone().unwrap();
 
-    let address = unlocked_state.rgb_get_address()?;
+    // When VLS is enabled, use the VLS sweep address from the VlsKeysManager
+    let address = if state.static_state.enable_vls {
+        #[cfg(feature = "vls")]
+        {
+            if let Some(vls_km) = &unlocked_state.vls_keys_manager {
+                vls_km.get_sweep_address().to_string()
+            } else {
+                // If VLS keys manager is not available, fall back to RGB address
+                unlocked_state.rgb_get_address()?
+            }
+        }
+        #[cfg(not(feature = "vls"))]
+        {
+            unlocked_state.rgb_get_address()?
+        }
+    } else {
+        unlocked_state.rgb_get_address()?
+    };
 
     Ok(Json(AddressResponse { address }))
 }
