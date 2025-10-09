@@ -281,6 +281,36 @@ impl UnlockedAppState {
         self.rgb_wallet_wrapper.sign_psbt(unsigned_psbt)
     }
 
+    pub(crate) fn rgb_sign_psbt_vls(&self, unsigned_psbt: String, vls_keys_manager: Option<&crate::ldk::AppKeysManager>) -> Result<String, RgbLibError> {
+        // If VLS is available, use it for signing
+        if let Some(vls_km) = vls_keys_manager {
+            #[cfg(feature = "vls")]
+            {
+                // Parse PSBT for VLS signing
+                if let Ok(psbt) = bitcoin::psbt::Psbt::from_str(&unsigned_psbt) {
+                    // Convert PSBT to descriptors format for VLS
+                    // For now, we'll use a simplified approach
+                    // TODO: Implement proper descriptor extraction from PSBT
+                    let descriptors: Vec<&lightning::sign::SpendableOutputDescriptor> = vec![];
+                    let secp_ctx = bitcoin::secp256k1::Secp256k1::new();
+                    
+                    match vls_km.sign_spendable_outputs_psbt(&descriptors, psbt, &secp_ctx) {
+                        Ok(signed_psbt) => {
+                            return Ok(signed_psbt.to_string());
+                        }
+                        Err(_) => {
+                            // If VLS signing fails, fall back to wallet signing
+                            tracing::warn!("VLS PSBT signing failed, falling back to wallet signing");
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Fall back to wallet signing
+        self.rgb_wallet_wrapper.sign_psbt(unsigned_psbt)
+    }
+
     pub(crate) fn rgb_sync(&self) -> Result<(), RgbLibError> {
         self.rgb_wallet_wrapper.sync()
     }

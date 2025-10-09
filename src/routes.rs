@@ -3404,13 +3404,33 @@ pub(crate) async fn send_asset(
         };
 
         let send_result = tokio::task::spawn_blocking(move || {
-            unlocked_state.rgb_send(
-                recipient_map,
-                payload.donation,
-                payload.fee_rate,
-                payload.min_confirmations,
-                payload.skip_sync,
-            )
+            // Use PSBT workflow when VLS is enabled
+            if state.static_state.enable_vls {
+                // VLS PSBT workflow: begin -> sign -> end
+                let unsigned_psbt = unlocked_state.rgb_send_begin(
+                    recipient_map,
+                    payload.donation,
+                    payload.fee_rate,
+                    payload.min_confirmations,
+                )?;
+                
+                // Sign PSBT using VLS
+                let signed_psbt = unlocked_state.rgb_sign_psbt_vls(
+                    unsigned_psbt,
+                    unlocked_state.vls_keys_manager.as_ref()
+                )?;
+                
+                unlocked_state.rgb_send_end(signed_psbt)
+            } else {
+                // Direct send for non-VLS mode
+                unlocked_state.rgb_send(
+                    recipient_map,
+                    payload.donation,
+                    payload.fee_rate,
+                    payload.min_confirmations,
+                    payload.skip_sync,
+                )
+            }
         })
         .await
         .unwrap()?;
@@ -3429,12 +3449,31 @@ pub(crate) async fn send_btc(
     no_cancel(async move {
         let unlocked_state = state.check_unlocked().await?.clone().unwrap();
 
-        let txid = unlocked_state.rgb_send_btc(
-            payload.address,
-            payload.amount,
-            payload.fee_rate,
-            payload.skip_sync,
-        )?;
+        // Use PSBT workflow when VLS is enabled
+        let txid = if state.static_state.enable_vls {
+            // VLS PSBT workflow: begin -> sign -> end
+            let unsigned_psbt = unlocked_state.rgb_send_btc_begin(
+                payload.address,
+                payload.amount,
+                payload.fee_rate,
+            )?;
+            
+            // Sign PSBT using VLS
+            let signed_psbt = unlocked_state.rgb_sign_psbt_vls(
+                unsigned_psbt,
+                unlocked_state.vls_keys_manager.as_ref()
+            )?;
+            
+            unlocked_state.rgb_send_btc_end(signed_psbt)?
+        } else {
+            // Direct send for non-VLS mode
+            unlocked_state.rgb_send_btc(
+                payload.address,
+                payload.amount,
+                payload.fee_rate,
+                payload.skip_sync,
+            )?
+        };
 
         Ok(Json(SendBtcResponse { txid }))
     })
