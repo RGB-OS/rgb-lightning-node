@@ -231,10 +231,12 @@ impl EntropySource for VlsKeysManager {
 
 // Implement additional methods needed by Lightning
 impl VlsKeysManager {
+    pub fn get_account_extended_pubkey(&self) -> bitcoin::bip32::Xpub {
+        self.client.get_account_extended_pubkey()
+    }
     pub fn get_sweep_address(&self) -> &Address {
         &self.sweep_address
     }
-
     pub fn get_node_secret_key(&self) -> bitcoin::secp256k1::SecretKey {
         // For now, return a placeholder secret key
         // In a full implementation, this should delegate to VLS
@@ -306,6 +308,7 @@ pub async fn make_grpc_signer(
     tracing::info!("Setting up VLS gRPC endpoint with HsmdService");
     tracing::info!("Endpoint: {}:{}", addr.ip(), addr.port());
     tracing::info!("Network: {}", network);
+    tracing::info!("🔍 Bitcoin RPC URL passed to VLS: {}", bitcoin_rpc_url);
     tracing::info!("VLS Fork: gitlab.com/dablanahuber/validating-lightning-signer.git@36ad8506");
     tracing::warn!("Ensure external VLS daemon is compatible with this protocol version");
     
