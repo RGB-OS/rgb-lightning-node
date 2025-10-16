@@ -58,6 +58,22 @@ impl UnlockedAppState {
             .create_utxos(up_to, num, size, fee_rate, skip_sync)
     }
 
+
+    pub(crate) fn rgb_create_utxos_begin(
+        &self,
+        up_to: bool,
+        num: u8,
+        size: u32,
+        fee_rate: u64,
+        skip_sync: bool,
+    ) -> Result<String, RgbLibError> {
+        self.rgb_wallet_wrapper.create_utxos_begin(up_to, num, size, fee_rate, skip_sync)
+    }
+
+    pub(crate) fn rgb_create_utxos_end(&self, psbt: String, skip_sync: bool) -> Result<u8, RgbLibError> {
+        self.rgb_wallet_wrapper.create_utxos_end(psbt, skip_sync)
+    }
+
     pub(crate) fn rgb_fail_transfers(
         &self,
         batch_transfer_idx: Option<i32>,
@@ -443,6 +459,28 @@ impl RgbLibWalletWrapper {
         )
     }
 
+    pub(crate) fn create_utxos_begin(
+        &self,
+        up_to: bool,
+        num: u8,
+        size: u32,
+        fee_rate: u64,
+        skip_sync: bool,
+    ) -> Result<String, RgbLibError> {
+        self.get_rgb_wallet().create_utxos_begin(
+            self.online.clone(),
+            up_to,
+            Some(num),
+            Some(size),
+            fee_rate,
+            skip_sync,
+        )
+    }
+
+    pub(crate) fn create_utxos_end(&self, psbt: String, skip_sync: bool) -> Result<u8, RgbLibError> {
+        self.get_rgb_wallet().create_utxos_end(self.online.clone(), psbt, skip_sync)
+    }
+
     pub(crate) fn fail_transfers(
         &self,
         batch_transfer_idx: Option<i32>,
@@ -458,11 +496,7 @@ impl RgbLibWalletWrapper {
     }
 
     pub(crate) fn get_address(&self) -> Result<String, RgbLibError> {
-        if let Some(vls_addr) = &self.vls_change_address {
-            Ok(vls_addr.clone())
-        } else {
-            self.get_rgb_wallet().get_address()
-        }
+            self.get_rgb_wallet().get_address()   
     }
 
     pub(crate) fn get_asset_balance(
@@ -743,15 +777,20 @@ impl RgbLibWalletWrapper {
 
 impl ChangeDestinationSource for RgbLibWalletWrapper {
     fn get_change_destination_script(&self) -> Result<ScriptBuf, ()> {
-        let address = if let Some(vls_addr) = &self.vls_change_address {
-            vls_addr.clone()
+        // Use VLS wallet address if available, otherwise fall back to RGB wallet address
+        if let Some(vls_address) = &self.vls_change_address {
+            Ok(Address::from_str(vls_address)
+                .unwrap()
+                .assume_checked()
+                .script_pubkey())
         } else {
-            self.get_address().unwrap()
-        };
-        Ok(Address::from_str(&address)
-            .unwrap()
-            .assume_checked()
-            .script_pubkey())
+            // Fallback to RGB wallet address
+            let address = self.get_address().unwrap();
+            Ok(Address::from_str(&address)
+                .unwrap()
+                .assume_checked()
+                .script_pubkey())
+        }
     }
 }
 
@@ -793,17 +832,20 @@ impl WalletSource for RgbLibWalletWrapper {
     }
 
     fn get_change_script(&self) -> Result<ScriptBuf, ()> {
-        let address = if let Some(vls_addr) = &self.vls_change_address {
-            vls_addr.clone()
-        } else {
-            self.wallet.lock().unwrap().get_address().unwrap()
-        };
-        Ok(
-            Address::from_str(&address)
+        // Use VLS wallet address if available, otherwise fall back to RGB wallet address
+        if let Some(vls_address) = &self.vls_change_address {
+            Ok(Address::from_str(vls_address)
                 .unwrap()
                 .assume_checked()
-                .script_pubkey(),
-        )
+                .script_pubkey())
+        } else {
+            // Fallback to RGB wallet address
+            let address = self.wallet.lock().unwrap().get_address().unwrap();
+            Ok(Address::from_str(&address)
+                .unwrap()
+                .assume_checked()
+                .script_pubkey())
+        }
     }
 
     fn sign_psbt(&self, tx: Psbt) -> Result<Transaction, ()> {

@@ -92,7 +92,6 @@ async fn main() -> Result<()> {
 
 pub(crate) async fn app(args: LdkUserInfo) -> Result<(Router, Arc<AppState>), AppError> {
     let app_state = start_daemon(&args).await?;
-
     let router = Router::new()
         .route(
             "/postassetmedia",

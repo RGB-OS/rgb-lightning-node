@@ -1251,28 +1251,8 @@ pub(crate) async fn address(
 ) -> Result<Json<AddressResponse>, APIError> {
     let unlocked_state = state.check_unlocked().await?.clone().unwrap();
 
-    // When VLS is enabled, try to get the address from VLS first
-    let address = if state.static_state.enable_vls {
-        #[cfg(feature = "vls")]
-        {
-            if let Some(vls_km) = &unlocked_state.vls_keys_manager {
-                // Try to get address from VLS keys manager
-                vls_km.get_sweep_address().to_string()
-            } else if let Some(vls_address) = &state.static_state.vls_sweep_address {
-                // Fall back to static VLS address if VLS keys manager not available
-                vls_address.clone()
-            } else {
-                // If no VLS address configured, fall back to RGB address
-                unlocked_state.rgb_get_address()?
-            }
-        }
-        #[cfg(not(feature = "vls"))]
-        {
-            unlocked_state.rgb_get_address()?
-        }
-    } else {
-        unlocked_state.rgb_get_address()?
-    };
+
+    let address = unlocked_state.rgb_get_address()?;
 
     Ok(Json(AddressResponse { address }))
 }
@@ -1508,14 +1488,25 @@ pub(crate) async fn create_utxos(
 ) -> Result<Json<EmptyResponse>, APIError> {
     no_cancel(async move {
         let unlocked_state = state.check_unlocked().await?.clone().unwrap();
-
-        unlocked_state.rgb_create_utxos(
-            payload.up_to,
-            payload.num.unwrap_or(UTXO_NUM),
-            payload.size.unwrap_or(UTXO_SIZE_SAT),
-            payload.fee_rate,
-            payload.skip_sync,
-        )?;
+        let txid = if state.static_state.enable_vls {
+            let psbt = unlocked_state.rgb_create_utxos_begin(
+                payload.up_to,
+                payload.num.unwrap_or(UTXO_NUM),
+                payload.size.unwrap_or(UTXO_SIZE_SAT),
+                payload.fee_rate,
+                payload.skip_sync,
+            )?;
+            let signed_psbt = unlocked_state.rgb_sign_psbt_vls(psbt, unlocked_state.vls_keys_manager.as_ref())?;
+            unlocked_state.rgb_create_utxos_end(signed_psbt, payload.skip_sync)
+        } else {
+            unlocked_state.rgb_create_utxos(
+                payload.up_to,
+                payload.num.unwrap_or(UTXO_NUM),
+                payload.size.unwrap_or(UTXO_SIZE_SAT),
+                payload.fee_rate,
+                payload.skip_sync,
+            )
+        };
         tracing::debug!("UTXO creation complete");
 
         Ok(Json(EmptyResponse {}))

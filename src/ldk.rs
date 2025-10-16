@@ -1696,11 +1696,8 @@ pub(crate) async fn start_ldk(
                     .require_network(network)
                     .map_err(|e| APIError::InvalidAddress(format!("VLS sweep address network mismatch: {}", e)))?
             } else {
-                // Generate a default sweep address using the temporary keys manager
-                let pubkey = temp_keys_manager.get_node_id(lightning::sign::Recipient::Node)
-                    .map_err(|e| APIError::FailedKeysManagerOperation(format!("Failed to get node ID: {:?}", e)))?;
-                
-                // Create a simple P2WPKH address from the node's public key
+                // We'll generate the sweep address after VLS is initialized
+                // For now, use a placeholder that will be updated later
                 let secp = bitcoin::secp256k1::Secp256k1::new();
                 let compressed_pubkey = bitcoin::CompressedPublicKey::from_private_key(
                     &secp, 
@@ -1711,10 +1708,18 @@ pub(crate) async fn start_ldk(
                 bitcoin::Address::p2wpkh(&compressed_pubkey, network)
             };
             
-            // Parse Bitcoin RPC URL
-            let bitcoin_rpc_url = url::Url::parse(&static_state.bitcoin_rpc_url)
-                .map_err(|e| APIError::InvalidUrl(format!("Invalid Bitcoin RPC URL: {}", e)))?;
+            // Parse Bitcoin RPC URL from unlock request parameters instead of command line
+            tracing::info!("Raw unlock request parameters:");
+            tracing::info!("Host: '{}'", unlock_request.bitcoind_rpc_host);
+            tracing::info!("Port: {}", unlock_request.bitcoind_rpc_port);
+            tracing::info!("Username: '{}'", unlock_request.bitcoind_rpc_username);
+            tracing::info!("Password: '{}'", unlock_request.bitcoind_rpc_password);
             
+            let bitcoin_rpc_url_str = format!("http://{}:{}@{}:{}", unlock_request.bitcoind_rpc_username, unlock_request.bitcoind_rpc_password, unlock_request.bitcoind_rpc_host, unlock_request.bitcoind_rpc_port);
+            let bitcoin_rpc_url = url::Url::parse(&bitcoin_rpc_url_str)
+                .map_err(|e| APIError::InvalidUrl(format!("Invalid Bitcoin RPC URL: {}", e)))?;
+            tracing::info!("Parsed Bitcoin RPC URL: {}", bitcoin_rpc_url);
+        
             // Create Shutter for graceful shutdown coordination
             let shutter = crate::vls::client::Shutter::new();
             
@@ -1731,7 +1736,7 @@ pub(crate) async fn start_ldk(
             
             tracing::info!("✅ VLS gRPC endpoint with HsmdService initialized successfully!");
             tracing::info!("   🚀 VLS daemon can now connect to: 127.0.0.1:{}", static_state.vls_port);
-            tracing::info!("   💡 Start VLS daemon with: vlsd --network {} --grpc-port {}", network, static_state.vls_port);
+            tracing::info!(" Start VLS daemon with: vlsd --network {} --grpc-port {}", network, static_state.vls_port);
             
             // Use VLS keys manager directly - no need to wrap in DynKeysInterface
             let vls_km = Arc::new(vls_keys_manager_instance);
@@ -1926,81 +1931,264 @@ pub(crate) async fn start_ldk(
                 )
             }
         };
-    let data_dir = static_state
-        .storage_dir_path
-        .clone()
-        .to_string_lossy()
-        .to_string();
+    // Clone necessary values to avoid lifetime issues
     let enable_vls = static_state.enable_vls;
-    let mut rgb_wallet = tokio::task::spawn_blocking(move || {
-        // When VLS is enabled, we'll use the existing keys for now
-        // The VLS public key will be used later when the channel manager is available
-        let (final_account_xpub_vanilla, final_account_xpub_colored, final_master_fingerprint, final_mnemonic) = 
-            if enable_vls {
-                #[cfg(feature = "vls")]
-                {
-                    // When VLS is enabled, use the same keys but without mnemonic
-                    // TODO: Later we'll update the RGB wallet to use VLS-derived keys
-                    tracing::info!("VLS enabled - using existing keys without mnemonic for VLS compatibility");
-                    (account_xpub_vanilla, account_xpub_colored, master_fingerprint, None)
-                }
-                #[cfg(not(feature = "vls"))]
-                {
-                    (account_xpub_vanilla, account_xpub_colored, master_fingerprint, mnemonic_str)
-                }
-            } else {
-                (account_xpub_vanilla, account_xpub_colored, master_fingerprint, mnemonic_str)
-            };
-
-        RgbLibWallet::new(WalletData {
-            data_dir,
-            bitcoin_network,
-            database_type: DatabaseType::Sqlite,
-            max_allocations_per_utxo: 1,
-            account_xpub_vanilla: final_account_xpub_vanilla.to_string(),
-            account_xpub_colored: final_account_xpub_colored.to_string(),
-            master_fingerprint: final_master_fingerprint.to_string(),
-            mnemonic: final_mnemonic,
-            vanilla_keychain: None,
-            supported_schemas: vec![AssetSchema::Nia, AssetSchema::Cfa, AssetSchema::Uda],
+    let storage_dir_path = static_state.storage_dir_path.clone();
+    let vls_sweep_address = static_state.vls_sweep_address.clone();
+    
+    // Initialize RGB wallet with VLS-derived keys if VLS is enabled
+    let (rgb_wallet, rgb_online, rgb_wallet_wrapper) = if enable_vls {
+        #[cfg(feature = "vls")]
+        {
+            // Get VLS extended public key
+            let vls_account_xpub = vls_keys_manager.as_ref().unwrap().get_account_extended_pubkey();
+            tracing::info!("VLS account extended public key: {}", vls_account_xpub);
+            
+            // Derive RGB wallet keys from VLS extended public key
+            // RGB wallet needs two extended public keys: vanilla and colored
+            // We'll derive them using different derivation paths from the VLS account key
+            
+            // Vanilla account: derive from VLS account key with path m/0
+            let vls_vanilla_xpub = vls_account_xpub.derive_pub(&bitcoin::secp256k1::Secp256k1::new(), &bitcoin::bip32::DerivationPath::from_str("m/0").unwrap()).unwrap();
+            
+            // Colored account: derive from VLS account key with path m/1  
+            let vls_colored_xpub = vls_account_xpub.derive_pub(&bitcoin::secp256k1::Secp256k1::new(), &bitcoin::bip32::DerivationPath::from_str("m/1").unwrap()).unwrap();
+            
+            // Get fingerprint from VLS account key
+            let vls_fingerprint = vls_account_xpub.fingerprint();
+            
+            tracing::info!("VLS-derived RGB wallet keys:");
+            tracing::info!("  Vanilla xpub: {}", vls_vanilla_xpub);
+            tracing::info!("  Colored xpub: {}", vls_colored_xpub);
+            tracing::info!("  Fingerprint: {}", vls_fingerprint);
+            
+            // Create RGB wallet with VLS-derived keys
+            let data_dir = storage_dir_path.clone().to_string_lossy().to_string();
+            let mut rgb_wallet = tokio::task::spawn_blocking(move || {
+                RgbLibWallet::new(WalletData {
+                    data_dir,
+                    bitcoin_network,
+                    database_type: DatabaseType::Sqlite,
+                    max_allocations_per_utxo: 1,
+                    account_xpub_vanilla: vls_vanilla_xpub.to_string(),
+                    account_xpub_colored: vls_colored_xpub.to_string(),
+                    master_fingerprint: vls_fingerprint.to_string(),
+                    mnemonic: None, // VLS doesn't use mnemonic
+                    vanilla_keychain: None,
+                    supported_schemas: vec![AssetSchema::Nia, AssetSchema::Cfa, AssetSchema::Uda],
+                })
+                .expect("valid rgb-lib wallet")
+            })
+            .await
+            .unwrap();
+            
+            let rgb_online = rgb_wallet.go_online(false, indexer_url.to_string())?;
+            
+            // Save VLS-derived keys to disk
+            fs::write(
+                storage_dir_path.join(WALLET_FINGERPRINT_FNAME),
+                vls_fingerprint.to_string(),
+            ).expect("able to write");
+            fs::write(
+                storage_dir_path.join(WALLET_ACCOUNT_XPUB_COLORED_FNAME),
+                vls_colored_xpub.to_string(),
+            ).expect("able to write");
+            fs::write(
+                storage_dir_path.join(WALLET_ACCOUNT_XPUB_VANILLA_FNAME),
+                vls_vanilla_xpub.to_string(),
+            ).expect("able to write");
+            fs::write(
+                storage_dir_path.join(WALLET_MASTER_FINGERPRINT_FNAME),
+                vls_fingerprint.to_string(),
+            ).expect("able to write");
+            
+            // Derive a wallet address from VLS account xpub using the same path VLS uses internally
+            // VLS typically uses path m/0/0 for the first wallet address
+            let vls_wallet_xpub = vls_account_xpub.derive_pub(
+                &bitcoin::secp256k1::Secp256k1::new(), 
+                &bitcoin::bip32::DerivationPath::from_str("m/0/0").unwrap()
+            ).unwrap();
+            
+            // Generate the corresponding address
+            let vls_wallet_address = bitcoin::Address::p2wpkh(
+                &vls_wallet_xpub.to_pub().into(), 
+                network
+            );
+            
+            tracing::info!("VLS wallet address derived from account xpub: {}", vls_wallet_address);
+            tracing::info!("Using VLS wallet address for RGB transactions to prevent address mismatch");
+            
+            let rgb_wallet_wrapper = Arc::new(RgbLibWalletWrapper::new(
+                Arc::new(Mutex::new(rgb_wallet)),
+                rgb_online.clone(),
+                Some(vls_wallet_address.to_string()), // Pass VLS wallet address
+            ));
+            
+            // We need to return the wallet, but it was moved into the wrapper
+            // Let's create a new wallet instance for the return value
+            let storage_dir_path_clone = storage_dir_path.clone();
+            let rgb_wallet_for_return = tokio::task::spawn_blocking(move || {
+                RgbLibWallet::new(WalletData {
+                    data_dir: storage_dir_path_clone.to_string_lossy().to_string(),
+                    bitcoin_network,
+                    database_type: DatabaseType::Sqlite,
+                    max_allocations_per_utxo: 1,
+                    account_xpub_vanilla: vls_vanilla_xpub.to_string(),
+                    account_xpub_colored: vls_colored_xpub.to_string(),
+                    master_fingerprint: vls_fingerprint.to_string(),
+                    mnemonic: None,
+                    vanilla_keychain: None,
+                    supported_schemas: vec![AssetSchema::Nia, AssetSchema::Cfa, AssetSchema::Uda],
+                })
+                .expect("valid rgb-lib wallet")
+            })
+            .await
+            .unwrap();
+            
+            (rgb_wallet_for_return, rgb_online, rgb_wallet_wrapper)
+        }
+        #[cfg(not(feature = "vls"))]
+        {
+            // Fallback for non-VLS mode - use original keys
+            let data_dir = storage_dir_path.clone().to_string_lossy().to_string();
+            let mut rgb_wallet = tokio::task::spawn_blocking(move || {
+                RgbLibWallet::new(WalletData {
+                    data_dir,
+                    bitcoin_network,
+                    database_type: DatabaseType::Sqlite,
+                    max_allocations_per_utxo: 1,
+                    account_xpub_vanilla: account_xpub_vanilla.to_string(),
+                    account_xpub_colored: account_xpub_colored.to_string(),
+                    master_fingerprint: master_fingerprint.to_string(),
+                    mnemonic: mnemonic_str,
+                    vanilla_keychain: None,
+                    supported_schemas: vec![AssetSchema::Nia, AssetSchema::Cfa, AssetSchema::Uda],
+                })
+                .expect("valid rgb-lib wallet")
+            })
+            .await
+            .unwrap();
+            
+            let rgb_online = rgb_wallet.go_online(false, indexer_url.to_string())?;
+            
+            // Save keys to disk
+            fs::write(
+                storage_dir_path.join(WALLET_FINGERPRINT_FNAME),
+                account_xpub_colored.fingerprint().to_string(),
+            ).expect("able to write");
+            fs::write(
+                storage_dir_path.join(WALLET_ACCOUNT_XPUB_COLORED_FNAME),
+                account_xpub_colored.to_string(),
+            ).expect("able to write");
+            fs::write(
+                storage_dir_path.join(WALLET_ACCOUNT_XPUB_VANILLA_FNAME),
+                account_xpub_vanilla.to_string(),
+            ).expect("able to write");
+            fs::write(
+                storage_dir_path.join(WALLET_MASTER_FINGERPRINT_FNAME),
+                master_fingerprint.to_string(),
+            ).expect("able to write");
+            
+            let rgb_wallet_wrapper = Arc::new(RgbLibWalletWrapper::new(
+                Arc::new(Mutex::new(rgb_wallet)),
+                rgb_online.clone(),
+                None, // No VLS address for non-VLS mode
+            ));
+            
+            // Create a new wallet instance for the return value
+            let storage_dir_path_clone = storage_dir_path.clone();
+            let mnemonic_str_clone = mnemonic_str.clone();
+            let rgb_wallet_for_return = tokio::task::spawn_blocking(move || {
+                RgbLibWallet::new(WalletData {
+                    data_dir: storage_dir_path_clone.to_string_lossy().to_string(),
+                    bitcoin_network,
+                    database_type: DatabaseType::Sqlite,
+                    max_allocations_per_utxo: 1,
+                    account_xpub_vanilla: account_xpub_vanilla.to_string(),
+                    account_xpub_colored: account_xpub_colored.to_string(),
+                    master_fingerprint: master_fingerprint.to_string(),
+                    mnemonic: mnemonic_str_clone,
+                    vanilla_keychain: None,
+                    supported_schemas: vec![AssetSchema::Nia, AssetSchema::Cfa, AssetSchema::Uda],
+                })
+                .expect("valid rgb-lib wallet")
+            })
+            .await
+            .unwrap();
+            
+            (rgb_wallet_for_return, rgb_online, rgb_wallet_wrapper)
+        }
+    } else {
+        // Non-VLS mode - use original keys
+        let data_dir = storage_dir_path.clone().to_string_lossy().to_string();
+        let mnemonic_str_clone = mnemonic_str.clone();
+        let mut rgb_wallet = tokio::task::spawn_blocking(move || {
+            RgbLibWallet::new(WalletData {
+                data_dir,
+                bitcoin_network,
+                database_type: DatabaseType::Sqlite,
+                max_allocations_per_utxo: 1,
+                account_xpub_vanilla: account_xpub_vanilla.to_string(),
+                account_xpub_colored: account_xpub_colored.to_string(),
+                master_fingerprint: master_fingerprint.to_string(),
+                mnemonic: mnemonic_str_clone,
+                vanilla_keychain: None,
+                supported_schemas: vec![AssetSchema::Nia, AssetSchema::Cfa, AssetSchema::Uda],
+            })
+            .expect("valid rgb-lib wallet")
         })
-        .expect("valid rgb-lib wallet")
-    })
-    .await
-    .unwrap();
-    let rgb_online = rgb_wallet.go_online(false, indexer_url.to_string())?;
-    fs::write(
-        static_state.storage_dir_path.join(WALLET_FINGERPRINT_FNAME),
-        account_xpub_colored.fingerprint().to_string(),
-    )
-    .expect("able to write");
-    fs::write(
-        static_state
-            .storage_dir_path
-            .join(WALLET_ACCOUNT_XPUB_COLORED_FNAME),
-        account_xpub_colored.to_string(),
-    )
-    .expect("able to write");
-    fs::write(
-        static_state
-            .storage_dir_path
-            .join(WALLET_ACCOUNT_XPUB_VANILLA_FNAME),
-        account_xpub_vanilla.to_string(),
-    )
-    .expect("able to write");
-    fs::write(
-        static_state
-            .storage_dir_path
-            .join(WALLET_MASTER_FINGERPRINT_FNAME),
-        master_fingerprint.to_string(),
-    )
-    .expect("able to write");
-
-    let rgb_wallet_wrapper = Arc::new(RgbLibWalletWrapper::new(
-        Arc::new(Mutex::new(rgb_wallet)),
-        rgb_online.clone(),
-        static_state.vls_sweep_address.clone(),
-    ));
+        .await
+        .unwrap();
+        
+        let rgb_online = rgb_wallet.go_online(false, indexer_url.to_string())?;
+        
+        // Save keys to disk
+        fs::write(
+            storage_dir_path.join(WALLET_FINGERPRINT_FNAME),
+            account_xpub_colored.fingerprint().to_string(),
+        ).expect("able to write");
+        fs::write(
+            storage_dir_path.join(WALLET_ACCOUNT_XPUB_COLORED_FNAME),
+            account_xpub_colored.to_string(),
+        ).expect("able to write");
+        fs::write(
+            storage_dir_path.join(WALLET_ACCOUNT_XPUB_VANILLA_FNAME),
+            account_xpub_vanilla.to_string(),
+        ).expect("able to write");
+        fs::write(
+            storage_dir_path.join(WALLET_MASTER_FINGERPRINT_FNAME),
+            master_fingerprint.to_string(),
+        ).expect("able to write");
+        
+        let rgb_wallet_wrapper = Arc::new(RgbLibWalletWrapper::new(
+            Arc::new(Mutex::new(rgb_wallet)),
+            rgb_online.clone(),
+            None, // No VLS address for non-VLS mode
+        ));
+        
+        // Create a new wallet instance for the return value
+        let storage_dir_path_clone = storage_dir_path.clone();
+        let mnemonic_str_clone = mnemonic_str.clone();
+        let rgb_wallet_for_return = tokio::task::spawn_blocking(move || {
+            RgbLibWallet::new(WalletData {
+                data_dir: storage_dir_path_clone.to_string_lossy().to_string(),
+                bitcoin_network,
+                database_type: DatabaseType::Sqlite,
+                max_allocations_per_utxo: 1,
+                account_xpub_vanilla: account_xpub_vanilla.to_string(),
+                account_xpub_colored: account_xpub_colored.to_string(),
+                master_fingerprint: master_fingerprint.to_string(),
+                mnemonic: mnemonic_str_clone,
+                vanilla_keychain: None,
+                supported_schemas: vec![AssetSchema::Nia, AssetSchema::Cfa, AssetSchema::Uda],
+            })
+            .expect("valid rgb-lib wallet")
+        })
+        .await
+        .unwrap();
+        
+        (rgb_wallet_for_return, rgb_online, rgb_wallet_wrapper)
+    };
 
     // Initialize the OutputSweeper.
     let txes = Arc::new(Mutex::new(disk::read_output_spender_txes(
