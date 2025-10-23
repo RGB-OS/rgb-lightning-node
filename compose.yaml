@@ -37,8 +37,11 @@ services:
   #   depends_on:
   #     - bitcoind
   rgb-lightning-node:
-    image: rgb-lightning-node:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.local
     command: [
+      "/usr/bin/rgb-lightning-node",
       "/app/data", 
       "--daemon-listening-port", "3001",
       "--ldk-peer-listening-port", "9735", 

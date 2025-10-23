@@ -109,28 +109,28 @@ possiblyrandom = { path = "./rust-lightning/possiblyrandom" }
 [dependencies.vls-core]
 features = ["std"]
 git = "https://gitlab.com/dablanahuber/validating-lightning-signer.git"
-branch = "feature/rgb_lightning_integration"
+rev = "6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc"
 optional = true
 # path = "../vls/vls-core"
 
 [dependencies.vls-persist]
 features = ["redb-kvv"]
 git = "https://gitlab.com/dablanahuber/validating-lightning-signer.git"
-branch = "feature/rgb_lightning_integration"
+rev = "6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc"
 optional = true
 # path = "../vls/vls-persist"
 
 [dependencies.vls-proxy]
 features = ["developer"]
 git = "https://gitlab.com/dablanahuber/validating-lightning-signer.git"
-branch = "feature/rgb_lightning_integration"
+rev = "6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc"
 optional = true
 # path = "../vls/vls-proxy"
 
 [dependencies.vls-protocol]
 features = ["developer"]
 git = "https://gitlab.com/dablanahuber/validating-lightning-signer.git"
-branch = "feature/rgb_lightning_integration"
+rev = "6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc"
 optional = true
 # path = "../vls/vls-proxy"
 

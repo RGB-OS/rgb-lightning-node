@@ -246,31 +246,22 @@ impl VlsKeysManager {
     pub fn sign_spendable_outputs_psbt(
         &self,
         descriptors: &[&lightning::sign::SpendableOutputDescriptor],
-        mut psbt: bitcoin::Psbt,
+        psbt: bitcoin::Psbt,
         _secp_ctx: &bitcoin::secp256k1::Secp256k1<bitcoin::secp256k1::All>,
     ) -> Result<bitcoin::Psbt, ()> {
-        // Extract the transaction from the PSBT
-        let tx = psbt.clone().extract_tx().map_err(|_| ())?;
+        tracing::info!("VLS signing PSBT with {} inputs", psbt.unsigned_tx.input.len());
         
-        // Convert descriptors to VLS format
-        let vls_descriptors: Vec<&lightning_signer::lightning::sign::SpendableOutputDescriptor> = 
-            descriptors.iter().map(|d| *d).collect();
-        
-        // Use VLS to sign the transaction
-        let witnesses = self.client.sign_onchain_tx(&tx, &vls_descriptors);
-        
-        // Apply the signatures to the transaction
-        let mut signed_tx = tx;
-        for (idx, witness) in witnesses.into_iter().enumerate() {
-            if idx < signed_tx.input.len() {
-                signed_tx.input[idx].witness = bitcoin::Witness::from_slice(&witness);
+        // Use VLS RGB PSBT signing method - this is much better than the generic method
+        match self.client.sign_rgb_psbt(&psbt, None) {
+            Ok(signed_psbt) => {
+                tracing::info!("VLS RGB PSBT signing successful");
+                Ok(signed_psbt)
+            }
+            Err(e) => {
+                tracing::error!("VLS RGB PSBT signing failed: {:?}", e);
+                Err(())
             }
         }
-        
-        // Update the PSBT with the signed transaction
-        psbt.unsigned_tx = signed_tx;
-        
-        Ok(psbt)
     }
 }
 
