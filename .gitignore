@@ -5,7 +5,8 @@
 /dataldk1
 /dataldk2
 /tmp
-
+/psbt_test
+/dataldk_external
 # will have compiled files and executables
 /target
 

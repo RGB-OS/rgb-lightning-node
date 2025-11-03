@@ -997,7 +997,7 @@ dependencies = [
 [[package]]
 name = "bolt-derive"
 version = "0.3.2"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc#6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=246a477ae9c3daf3f7c2afa366595f7ae4a99416#246a477ae9c3daf3f7c2afa366595f7ae4a99416"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3089,7 +3089,7 @@ dependencies = [
 [[package]]
 name = "lightning-storage-server"
 version = "0.4.0"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc#6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=246a477ae9c3daf3f7c2afa366595f7ae4a99416#246a477ae9c3daf3f7c2afa366595f7ae4a99416"
 dependencies = [
  "bitcoin_hashes 0.14.0",
  "hex",
@@ -6178,7 +6178,7 @@ dependencies = [
 [[package]]
 name = "vls-common"
 version = "0.13.0"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc#6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=246a477ae9c3daf3f7c2afa366595f7ae4a99416#246a477ae9c3daf3f7c2afa366595f7ae4a99416"
 dependencies = [
  "hex",
 ]
@@ -6186,7 +6186,7 @@ dependencies = [
 [[package]]
 name = "vls-core"
 version = "0.13.0"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc#6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=246a477ae9c3daf3f7c2afa366595f7ae4a99416#246a477ae9c3daf3f7c2afa366595f7ae4a99416"
 dependencies = [
  "ahash",
  "anyhow",
@@ -6218,7 +6218,7 @@ dependencies = [
 [[package]]
 name = "vls-frontend"
 version = "0.13.0"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc#6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=246a477ae9c3daf3f7c2afa366595f7ae4a99416#246a477ae9c3daf3f7c2afa366595f7ae4a99416"
 dependencies = [
  "async-trait",
  "lightning-storage-server",
@@ -6233,7 +6233,7 @@ dependencies = [
 [[package]]
 name = "vls-persist"
 version = "0.13.0"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc#6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=246a477ae9c3daf3f7c2afa366595f7ae4a99416#246a477ae9c3daf3f7c2afa366595f7ae4a99416"
 dependencies = [
  "hex",
  "log",
@@ -6251,7 +6251,7 @@ dependencies = [
 [[package]]
 name = "vls-policy-derive"
 version = "0.1.0"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc#6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=246a477ae9c3daf3f7c2afa366595f7ae4a99416#246a477ae9c3daf3f7c2afa366595f7ae4a99416"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6261,7 +6261,7 @@ dependencies = [
 [[package]]
 name = "vls-protocol"
 version = "0.13.0"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc#6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=246a477ae9c3daf3f7c2afa366595f7ae4a99416#246a477ae9c3daf3f7c2afa366595f7ae4a99416"
 dependencies = [
  "as-any",
  "bitcoin-consensus-derive",
@@ -6276,7 +6276,7 @@ dependencies = [
 [[package]]
 name = "vls-protocol-client"
 version = "0.13.0"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc#6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=246a477ae9c3daf3f7c2afa366595f7ae4a99416#246a477ae9c3daf3f7c2afa366595f7ae4a99416"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6290,7 +6290,7 @@ dependencies = [
 [[package]]
 name = "vls-protocol-signer"
 version = "0.13.0"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc#6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=246a477ae9c3daf3f7c2afa366595f7ae4a99416#246a477ae9c3daf3f7c2afa366595f7ae4a99416"
 dependencies = [
  "bit-vec",
  "log",
@@ -6301,7 +6301,7 @@ dependencies = [
 [[package]]
 name = "vls-proxy"
 version = "0.13.0"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc#6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=246a477ae9c3daf3f7c2afa366595f7ae4a99416#246a477ae9c3daf3f7c2afa366595f7ae4a99416"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -6334,7 +6334,7 @@ dependencies = [
 [[package]]
 name = "vls-util"
 version = "0.13.0"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc#6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=246a477ae9c3daf3f7c2afa366595f7ae4a99416#246a477ae9c3daf3f7c2afa366595f7ae4a99416"
 dependencies = [
  "fern",
  "log",
@@ -6350,7 +6350,7 @@ dependencies = [
 [[package]]
 name = "vlsd"
 version = "0.13.0"
-source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc#6e1d95bb3f4b568dd07bb8f6b96ff04fff683dfc"
+source = "git+https://gitlab.com/dablanahuber/validating-lightning-signer.git?rev=246a477ae9c3daf3f7c2afa366595f7ae4a99416#246a477ae9c3daf3f7c2afa366595f7ae4a99416"
 dependencies = [
  "anyhow",
  "async-stream",

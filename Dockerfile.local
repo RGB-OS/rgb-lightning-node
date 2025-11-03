@@ -1,0 +1,26 @@
+FROM rust:1.87.0-bookworm as builder
+
+RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+COPY rust-lightning ./rust-lightning
+
+RUN cargo build --release --features vls
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt install -y --no-install-recommends \
+    ca-certificates \
+    openssl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/target/release/rgb-lightning-node /usr/bin/rgb-lightning-node
+
+WORKDIR /app
+
+EXPOSE 3001 9735 7701
+
+CMD ["/usr/bin/rgb-lightning-node"]

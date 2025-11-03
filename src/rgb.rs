@@ -349,8 +349,15 @@ impl UnlockedAppState {
                     
                     match vls_km.sign_spendable_outputs_psbt(&descriptor_refs, psbt, &secp_ctx) {
                         Ok(signed_psbt) => {
-                            tracing::info!("VLS PSBT signing successful");
-                            return Ok(signed_psbt.to_string());
+                            // Check if VLS actually signed the PSBT or just returned it unchanged
+                            let psbt_str = signed_psbt.to_string();
+                            if psbt_str == unsigned_psbt {
+                                tracing::info!("VLS returned unsigned PSBT, signing with RGB wallet");
+                                return self.rgb_wallet_wrapper.sign_psbt(unsigned_psbt);
+                            } else {
+                                tracing::info!("VLS PSBT signing successful");
+                                return Ok(psbt_str);
+                            }
                         }
                         Err(e) => {
                             tracing::error!("VLS PSBT signing failed: {:?}, falling back to wallet signing", e);

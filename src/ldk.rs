@@ -1936,44 +1936,41 @@ pub(crate) async fn start_ldk(
     let storage_dir_path = static_state.storage_dir_path.clone();
     let vls_sweep_address = static_state.vls_sweep_address.clone();
     
-    // Initialize RGB wallet with VLS-derived keys if VLS is enabled
+    // Initialize RGB wallet with user's mnemonic-derived keys (not VLS-derived keys)
     let (rgb_wallet, rgb_online, rgb_wallet_wrapper) = if enable_vls {
         #[cfg(feature = "vls")]
         {
-            // Get VLS extended public key
-            let vls_account_xpub = vls_keys_manager.as_ref().unwrap().get_account_extended_pubkey();
-            tracing::info!("VLS account extended public key: {}", vls_account_xpub);
+            tracing::info!("VLS enabled - using user's mnemonic-derived keys for RGB wallet");
             
-            // Derive RGB wallet keys from VLS extended public key
-            // RGB wallet needs two extended public keys: vanilla and colored
-            // We'll derive them using different derivation paths from the VLS account key
+            // Use the user's original mnemonic to derive RGB wallet keys
+            // This ensures the RGB wallet can sign transactions with the mnemonic
+            // Vanilla account: derive from user's mnemonic with path m/0
+            let (_, account_xpub_vanilla_temp, _) = get_account_data(bitcoin_network, mnemonic_str.as_deref().unwrap(), false).unwrap();
             
-            // Vanilla account: derive from VLS account key with path m/0
-            let vls_vanilla_xpub = vls_account_xpub.derive_pub(&bitcoin::secp256k1::Secp256k1::new(), &bitcoin::bip32::DerivationPath::from_str("m/0").unwrap()).unwrap();
+            // Colored account: derive from user's mnemonic with path m/1
+            let (_, account_xpub_colored_temp, master_fingerprint_temp) = get_account_data(bitcoin_network, mnemonic_str.as_deref().unwrap(), true).unwrap();
             
-            // Colored account: derive from VLS account key with path m/1  
-            let vls_colored_xpub = vls_account_xpub.derive_pub(&bitcoin::secp256k1::Secp256k1::new(), &bitcoin::bip32::DerivationPath::from_str("m/1").unwrap()).unwrap();
+            tracing::info!("User-derived RGB wallet keys:");
+            tracing::info!("  Vanilla xpub: {}", account_xpub_vanilla_temp);
+            tracing::info!("  Colored xpub: {}", account_xpub_colored_temp);
+            tracing::info!("  Fingerprint: {}", master_fingerprint_temp);
             
-            // Get fingerprint from VLS account key
-            let vls_fingerprint = vls_account_xpub.fingerprint();
-            
-            tracing::info!("VLS-derived RGB wallet keys:");
-            tracing::info!("  Vanilla xpub: {}", vls_vanilla_xpub);
-            tracing::info!("  Colored xpub: {}", vls_colored_xpub);
-            tracing::info!("  Fingerprint: {}", vls_fingerprint);
-            
-            // Create RGB wallet with VLS-derived keys
+            // Create RGB wallet with user's mnemonic-derived keys
             let data_dir = storage_dir_path.clone().to_string_lossy().to_string();
+            let mnemonic_for_wallet = mnemonic_str.clone(); // Clone before moving into closure
+            let account_xpub_vanilla_for_wallet = account_xpub_vanilla_temp.clone();
+            let account_xpub_colored_for_wallet = account_xpub_colored_temp.clone();
+            let master_fingerprint_for_wallet = master_fingerprint_temp.clone();
             let mut rgb_wallet = tokio::task::spawn_blocking(move || {
                 RgbLibWallet::new(WalletData {
                     data_dir,
                     bitcoin_network,
                     database_type: DatabaseType::Sqlite,
                     max_allocations_per_utxo: 1,
-                    account_xpub_vanilla: vls_vanilla_xpub.to_string(),
-                    account_xpub_colored: vls_colored_xpub.to_string(),
-                    master_fingerprint: vls_fingerprint.to_string(),
-                    mnemonic: None, // VLS doesn't use mnemonic
+                    account_xpub_vanilla: account_xpub_vanilla_for_wallet.to_string(),
+                    account_xpub_colored: account_xpub_colored_for_wallet.to_string(),
+                    master_fingerprint: master_fingerprint_for_wallet.to_string(),
+                    mnemonic: mnemonic_for_wallet.clone(), // Use the cloned mnemonic
                     vanilla_keychain: None,
                     supported_schemas: vec![AssetSchema::Nia, AssetSchema::Cfa, AssetSchema::Uda],
                 })
@@ -1984,59 +1981,54 @@ pub(crate) async fn start_ldk(
             
             let rgb_online = rgb_wallet.go_online(false, indexer_url.to_string())?;
             
-            // Save VLS-derived keys to disk
+            // Save user-derived keys to disk
             fs::write(
                 storage_dir_path.join(WALLET_FINGERPRINT_FNAME),
-                vls_fingerprint.to_string(),
+                master_fingerprint_temp.to_string(),
             ).expect("able to write");
             fs::write(
                 storage_dir_path.join(WALLET_ACCOUNT_XPUB_COLORED_FNAME),
-                vls_colored_xpub.to_string(),
+                account_xpub_colored_temp.to_string(),
             ).expect("able to write");
             fs::write(
                 storage_dir_path.join(WALLET_ACCOUNT_XPUB_VANILLA_FNAME),
-                vls_vanilla_xpub.to_string(),
+                account_xpub_vanilla_temp.to_string(),
             ).expect("able to write");
             fs::write(
                 storage_dir_path.join(WALLET_MASTER_FINGERPRINT_FNAME),
-                vls_fingerprint.to_string(),
+                master_fingerprint_temp.to_string(),
             ).expect("able to write");
             
-            // Derive a wallet address from VLS account xpub using the same path VLS uses internally
-            // VLS typically uses path m/0/0 for the first wallet address
-            let vls_wallet_xpub = vls_account_xpub.derive_pub(
-                &bitcoin::secp256k1::Secp256k1::new(), 
-                &bitcoin::bip32::DerivationPath::from_str("m/0/0").unwrap()
-            ).unwrap();
+            // Derive wallet address from user's mnemonic to match RGB wallet
+            let wallet_address = rgb_wallet.get_address().map_err(|e| {
+                APIError::InvalidAddress(format!("Failed to get RGB wallet address: {}", e))
+            })?;
             
-            // Generate the corresponding address
-            let vls_wallet_address = bitcoin::Address::p2wpkh(
-                &vls_wallet_xpub.to_pub().into(), 
-                network
-            );
-            
-            tracing::info!("VLS wallet address derived from account xpub: {}", vls_wallet_address);
-            tracing::info!("Using VLS wallet address for RGB transactions to prevent address mismatch");
+            tracing::info!("RGB wallet address: {}", wallet_address);
             
             let rgb_wallet_wrapper = Arc::new(RgbLibWalletWrapper::new(
                 Arc::new(Mutex::new(rgb_wallet)),
                 rgb_online.clone(),
-                Some(vls_wallet_address.to_string()), // Pass VLS wallet address
+                None, // Pass VLS wallet address
             ));
             
             // We need to return the wallet, but it was moved into the wrapper
             // Let's create a new wallet instance for the return value
             let storage_dir_path_clone = storage_dir_path.clone();
+            let mnemonic_str_clone = mnemonic_str.clone();
+            let account_xpub_vanilla_for_return = account_xpub_vanilla_temp.clone();
+            let account_xpub_colored_for_return = account_xpub_colored_temp.clone();
+            let master_fingerprint_for_return = master_fingerprint_temp.clone();
             let rgb_wallet_for_return = tokio::task::spawn_blocking(move || {
                 RgbLibWallet::new(WalletData {
                     data_dir: storage_dir_path_clone.to_string_lossy().to_string(),
                     bitcoin_network,
                     database_type: DatabaseType::Sqlite,
                     max_allocations_per_utxo: 1,
-                    account_xpub_vanilla: vls_vanilla_xpub.to_string(),
-                    account_xpub_colored: vls_colored_xpub.to_string(),
-                    master_fingerprint: vls_fingerprint.to_string(),
-                    mnemonic: None,
+                    account_xpub_vanilla: account_xpub_vanilla_for_return.to_string(),
+                    account_xpub_colored: account_xpub_colored_for_return.to_string(),
+                    master_fingerprint: master_fingerprint_for_return.to_string(),
+                    mnemonic: mnemonic_str_clone,
                     vanilla_keychain: None,
                     supported_schemas: vec![AssetSchema::Nia, AssetSchema::Cfa, AssetSchema::Uda],
                 })

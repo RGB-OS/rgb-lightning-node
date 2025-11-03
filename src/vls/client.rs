@@ -251,15 +251,17 @@ impl VlsKeysManager {
     ) -> Result<bitcoin::Psbt, ()> {
         tracing::info!("VLS signing PSBT with {} inputs", psbt.unsigned_tx.input.len());
         
-        // Use VLS RGB PSBT signing method - this is much better than the generic method
+        // Try VLS RGB PSBT signing method first
         match self.client.sign_rgb_psbt(&psbt, None) {
             Ok(signed_psbt) => {
                 tracing::info!("VLS RGB PSBT signing successful");
-                Ok(signed_psbt)
+                Ok(signed_psbt) 
             }
             Err(e) => {
-                tracing::error!("VLS RGB PSBT signing failed: {:?}", e);
-                Err(())
+                // VLS doesn't have an RGB wallet initialized, so it can't sign RGB PSBTs
+                // Return the PSBT unchanged so the RGB wallet can sign it
+                tracing::warn!("VLS RGB PSBT signing failed (RGB wallet not initialized in VLS): {:?}, returning unchanged PSBT for RGB wallet signing", e);
+                Ok(psbt)
             }
         }
     }
