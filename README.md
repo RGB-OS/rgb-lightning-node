@@ -1,4 +1,4 @@
-# RLN - RGB Lightning Node
+# RLN - RGB Lightning Node 
 
 RGB-enabled LN node daemon ported from [rgb-lightning-sample], which is based
 on [ldk-sample].
