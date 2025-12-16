@@ -38,9 +38,9 @@ use crate::{
     disk::FilesystemLogger,
     error::{APIError, AppError},
     ldk::{
-        BumpTxEventHandler, ChainMonitor, ChannelManager, InboundPaymentInfoStorage,
-        LdkBackgroundServices, NetworkGraph, OnionMessenger, OutboundPaymentInfoStorage,
-        OutputSweeper, PeerManager, SwapMap,
+        BumpTxEventHandler, ChainMonitor, ChannelManager, ClaimablePaymentStorage,
+        InboundPaymentInfoStorage, InvoiceMetadataStorage, LdkBackgroundServices, NetworkGraph,
+        OnionMessenger, OutboundPaymentInfoStorage, OutputSweeper, PeerManager, SwapMap,
     },
 };
 
@@ -95,6 +95,8 @@ pub(crate) struct StaticState {
 pub(crate) struct UnlockedAppState {
     pub(crate) channel_manager: Arc<ChannelManager>,
     pub(crate) inbound_payments: Arc<Mutex<InboundPaymentInfoStorage>>,
+    pub(crate) invoice_metadata: Arc<Mutex<InvoiceMetadataStorage>>,
+    pub(crate) claimable_htlcs: Arc<Mutex<ClaimablePaymentStorage>>,
     pub(crate) keys_manager: Arc<KeysManager>,
     pub(crate) network_graph: Arc<NetworkGraph>,
     pub(crate) chain_monitor: Arc<ChainMonitor>,
@@ -116,6 +118,14 @@ pub(crate) struct UnlockedAppState {
 impl UnlockedAppState {
     pub(crate) fn get_inbound_payments(&self) -> MutexGuard<'_, InboundPaymentInfoStorage> {
         self.inbound_payments.lock().unwrap()
+    }
+
+    pub(crate) fn get_invoice_metadata(&self) -> MutexGuard<'_, InvoiceMetadataStorage> {
+        self.invoice_metadata.lock().unwrap()
+    }
+
+    pub(crate) fn get_claimable_htlcs(&self) -> MutexGuard<'_, ClaimablePaymentStorage> {
+        self.claimable_htlcs.lock().unwrap()
     }
 
     pub(crate) fn get_outbound_payments(&self) -> MutexGuard<'_, OutboundPaymentInfoStorage> {

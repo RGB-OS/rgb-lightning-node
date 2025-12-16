@@ -210,6 +210,18 @@ pub enum APIError {
     #[error("Invalid transport endpoints: {0}")]
     InvalidTransportEndpoints(String),
 
+    #[error("Invoice is expired")]
+    InvoiceExpired,
+
+    #[error("HTLC claim deadline exceeded")]
+    ClaimDeadlineExceeded,
+
+    #[error("Invoice is not marked as HODL")]
+    InvoiceNotHodl,
+
+    #[error("No claimable HTLC found for this invoice")]
+    InvoiceNotClaimable,
+
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),
 
@@ -233,6 +245,12 @@ pub enum APIError {
 
     #[error("Unable to find payment preimage, be sure you've provided the correct swap info")]
     MissingSwapPaymentPreimage,
+
+    #[error("Missing payment preimage")]
+    MissingPaymentPreimage,
+
+    #[error("Invalid payment preimage")]
+    InvalidPaymentPreimage,
 
     #[error("Network error: {0}")]
     Network(String),
@@ -438,12 +456,14 @@ impl IntoResponse for APIError {
             | APIError::InvalidPassword(_)
             | APIError::InvalidPaymentHash(_)
             | APIError::InvalidPaymentSecret
+            | APIError::InvalidPaymentPreimage
             | APIError::InvalidPeerInfo(_)
             | APIError::InvalidPrecision(_)
             | APIError::InvalidPubkey
             | APIError::InvalidRecipientData(_)
             | APIError::InvalidRecipientID
             | APIError::InvalidRecipientNetwork
+            | APIError::InvoiceExpired
             | APIError::InvalidSwap(_)
             | APIError::InvalidSwapString(_, _)
             | APIError::InvalidTicker(_)
@@ -452,8 +472,10 @@ impl IntoResponse for APIError {
             | APIError::InvalidTransportEndpoints(_)
             | APIError::MediaFileEmpty
             | APIError::MediaFileNotProvided
+            | APIError::MissingPaymentPreimage
             | APIError::MissingSwapPaymentPreimage
             | APIError::OutputBelowDustLimit
+            | APIError::ClaimDeadlineExceeded
             | APIError::UnsupportedBackupVersion { .. } => {
                 (StatusCode::BAD_REQUEST, self.to_string(), self.name())
             }
@@ -497,6 +519,10 @@ impl IntoResponse for APIError {
             | APIError::UnlockedNode
             | APIError::UnsupportedLayer1(_)
             | APIError::UnsupportedTransportType => {
+                (StatusCode::FORBIDDEN, self.to_string(), self.name())
+            }
+            | APIError::InvoiceNotHodl
+            | APIError::InvoiceNotClaimable => {
                 (StatusCode::FORBIDDEN, self.to_string(), self.name())
             }
             APIError::Network(_) | APIError::NoValidTransportEndpoint => (
