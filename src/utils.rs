@@ -8,7 +8,10 @@ use lightning::routing::router::{
     Payee, PaymentParameters, Route, RouteHint, RouteParameters, Router as _,
     DEFAULT_MAX_TOTAL_CLTV_EXPIRY_DELTA, MAX_PATH_LENGTH_ESTIMATE,
 };
+use bitcoin::hashes::sha256::Hash as Sha256;
+use bitcoin::hashes::Hash;
 use lightning::{
+    ln::{PaymentHash, PaymentPreimage},
     onion_message::packet::OnionMessageContents,
     sign::KeysManager,
     util::ser::{Writeable, Writer},
@@ -454,4 +457,47 @@ pub(crate) fn get_route(
     );
 
     route.ok()
+}
+
+/// Validates a hex-encoded payment hash string and converts it to a PaymentHash.
+/// Returns an error if the string is invalid, empty, or not exactly 32 bytes.
+pub(crate) fn validate_and_parse_payment_hash(
+    payment_hash_str: &str,
+) -> Result<PaymentHash, APIError> {
+    if payment_hash_str.is_empty() {
+        return Err(APIError::InvalidPaymentHash("missing payment_hash".into()));
+    }
+    let hash_vec = hex_str_to_vec(payment_hash_str)
+        .ok_or_else(|| APIError::InvalidPaymentHash(payment_hash_str.to_string()))?;
+    if hash_vec.len() != 32 {
+        return Err(APIError::InvalidPaymentHash(payment_hash_str.to_string()));
+    }
+    let hash_bytes: [u8; 32] = hash_vec
+        .try_into()
+        .map_err(|_| APIError::InvalidPaymentHash(payment_hash_str.to_string()))?;
+    Ok(PaymentHash(hash_bytes))
+}
+
+/// Validates a hex-encoded payment preimage string, converts it to a PaymentPreimage,
+/// and verifies that it matches the provided payment hash.
+/// Returns an error if the string is invalid, not exactly 32 bytes, or doesn't match the hash.
+pub(crate) fn validate_and_parse_payment_preimage(
+    payment_preimage_str: &str,
+    payment_hash: &PaymentHash,
+) -> Result<PaymentPreimage, APIError> {
+    let preimage_vec = hex_str_to_vec(payment_preimage_str)
+        .ok_or_else(|| APIError::InvalidPaymentPreimage)?;
+    if preimage_vec.len() != 32 {
+        return Err(APIError::InvalidPaymentPreimage);
+    }
+    let preimage = PaymentPreimage(
+        preimage_vec
+            .try_into()
+            .map_err(|_| APIError::InvalidPaymentPreimage)?,
+    );
+    let computed_hash = PaymentHash(Sha256::hash(&preimage.0).to_byte_array());
+    if computed_hash != *payment_hash {
+        return Err(APIError::InvalidPaymentPreimage);
+    }
+    Ok(preimage)
 }

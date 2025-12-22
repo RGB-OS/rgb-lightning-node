@@ -108,6 +108,7 @@ pub(crate) struct LdkBackgroundServices {
     peer_manager: Arc<PeerManager>,
     bp_exit: Sender<()>,
     background_processor: Option<JoinHandle<Result<(), io::Error>>>,
+    claimable_expiry_task: Option<JoinHandle<()>>,
 }
 
 #[derive(Clone, Debug)]
@@ -152,8 +153,6 @@ pub(crate) struct InvoiceMetadata {
     pub(crate) expected_amt_msat: Option<u64>,
     /// Invoice expiry (seconds since epoch).
     pub(crate) expiry: Option<u64>,
-    /// Optional preimage (rarely present; caller usually keeps it).
-    pub(crate) preimage: Option<PaymentPreimage>,
     /// Optional external reference (swap/order id, etc.).
     pub(crate) external_ref: Option<String>,
 }
@@ -162,8 +161,7 @@ impl_writeable_tlv_based!(InvoiceMetadata, {
     (0, mode, required),
     (2, expected_amt_msat, required),
     (4, expiry, required),
-    (6, preimage, option),
-    (8, external_ref, option),
+    (6, external_ref, option),
 });
 
 /// Persisted HTLC claimable state for HODL invoices.
@@ -173,8 +171,6 @@ impl_writeable_tlv_based!(InvoiceMetadata, {
 pub(crate) struct ClaimablePayment {
     /// Payment hash for this inbound HTLC.
     pub(crate) payment_hash: PaymentHash,
-    /// Optional preimage (may be absent; caller usually holds it).
-    pub(crate) payment_preimage: Option<PaymentPreimage>,
     /// HTLC amount in millisatoshis (received amount).
     pub(crate) amount_msat: u64,
     /// Invoice expiry timestamp (seconds since epoch).
@@ -187,11 +183,10 @@ pub(crate) struct ClaimablePayment {
 
 impl_writeable_tlv_based!(ClaimablePayment, {
     (0, payment_hash, required),
-    (2, payment_preimage, required),
-    (4, amount_msat, required),
-    (6, invoice_expiry, required),
-    (8, claim_deadline_height, required),
-    (10, created_at, required),
+    (2, amount_msat, required),
+    (4, invoice_expiry, required),
+    (6, claim_deadline_height, required),
+    (8, created_at, required),
 });
 
 pub(crate) struct InboundPaymentInfoStorage {
@@ -380,6 +375,10 @@ impl UnlockedAppState {
             self.save_claimable_htlcs(claimables);
         }
         res
+    }
+
+    pub(crate) fn claimable_payment(&self, payment_hash: &PaymentHash) -> Option<ClaimablePayment> {
+        self.get_claimable_htlcs().payments.get(payment_hash).cloned()
     }
 
     pub(crate) fn add_outbound_payment(
@@ -838,18 +837,98 @@ async fn handle_ldk_events(
                 PaymentPurpose::SpontaneousPayment(preimage) => (Some(preimage), None),
             };
 
+            // Invoice metadata is optional - if missing, default to auto-claim behavior
             let invoice_metadata = unlocked_state
                 .invoice_metadata()
                 .get(&payment_hash)
                 .cloned();
 
+            // If no metadata exists, check if this is a legacy invoice in inbound_payments
             let Some(metadata) = invoice_metadata else {
-                tracing::warn!("PaymentClaimable for unknown invoice (hash: {payment_hash:?}); failing backwards");
-                unlocked_state.channel_manager.fail_htlc_backwards(&payment_hash);
+                // Check if this payment_hash exists in inbound_payments (legacy invoice)
+                let inbound_payments = unlocked_state.inbound_payments();
+                let legacy_invoice = inbound_payments.get(&payment_hash);
+                
+                if let Some(legacy_payment_info) = legacy_invoice {
+                    // This is a legacy invoice (created before invoice_metadata feature)
+                    // Treat it as auto-claim invoice with basic validation
+                    tracing::info!(
+                        "Legacy invoice detected (no metadata) for payment {:?}, treating as auto-claim",
+                        payment_hash
+                    );
+                    
+                    // For legacy invoices, LDK should provide the preimage for standard Bolt11 invoices
+                    let Some(preimage) = payment_preimage else {
+                        // If preimage is missing, check if it was stored in inbound_payment
+                        // (unlikely for standard invoices, but possible for edge cases)
+                        if let Some(stored_preimage) = legacy_payment_info.preimage {
+                            tracing::info!(
+                                "Using stored preimage from inbound_payment for legacy invoice {:?}",
+                                payment_hash
+                            );
+                            unlocked_state.channel_manager.claim_funds(stored_preimage);
+                            return Ok(());
+                        }
+                        
+                        tracing::error!(
+                            "Missing payment preimage for legacy invoice {:?}, cannot claim. \
+                            This may indicate a corrupted state or LDK version issue.",
+                            payment_hash
+                        );
+                        unlocked_state
+                            .channel_manager
+                            .fail_htlc_backwards(&payment_hash);
+                        return Ok(());
+                    };
+                    
+                    // Basic validation: check amount if specified in legacy invoice
+                    if let Some(expected_amt) = legacy_payment_info.amt_msat {
+                        if amount_msat < expected_amt {
+                            tracing::warn!(
+                                "Received {} msat for legacy invoice {} but expected at least {} msat",
+                                amount_msat,
+                                payment_hash,
+                                expected_amt
+                            );
+                            unlocked_state
+                                .channel_manager
+                                .fail_htlc_backwards(&payment_hash);
+                            unlocked_state.upsert_inbound_payment(
+                                payment_hash,
+                                HTLCStatus::Failed,
+                                payment_preimage,
+                                payment_secret,
+                                Some(amount_msat),
+                                unlocked_state.channel_manager.get_our_node_id(),
+                            );
+                            return Ok(());
+                        }
+                    }
+                    
+                    // Auto-claim legacy invoice
+                    tracing::info!("Auto-claiming legacy invoice {:?}", payment_hash);
+                    unlocked_state.channel_manager.claim_funds(preimage);
+                    return Ok(());
+                }
+                
+                // No metadata and not in inbound_payments - likely spontaneous/keysend payment
+                let Some(preimage) = payment_preimage else {
+                    tracing::error!(
+                        "Missing payment preimage for payment {:?}, cannot claim",
+                        payment_hash
+                    );
+                    unlocked_state
+                        .channel_manager
+                        .fail_htlc_backwards(&payment_hash);
+                    return Ok(());
+                };
+                tracing::info!("Auto-claiming payment without metadata {:?}", payment_hash);
+                unlocked_state.channel_manager.claim_funds(preimage);
                 return Ok(());
             };
 
             let now_ts = get_current_timestamp();
+            // Metadata exists - apply expiry and amount checks
             if let Some(expiry) = metadata.expiry {
                 if now_ts >= expiry {
                     tracing::warn!(
@@ -910,10 +989,8 @@ async fn handle_ldk_events(
                 InvoiceMode::Hodl => {
                     let claim_deadline_height = claim_deadline.map(|h| h);
         
-                    let preimage = payment_preimage.or(metadata.preimage);
                     let claimable = ClaimablePayment {
                         payment_hash,
-                        payment_preimage: preimage,
                         amount_msat,
                         invoice_expiry: metadata.expiry,
                         claim_deadline_height,
@@ -923,7 +1000,7 @@ async fn handle_ldk_events(
                     unlocked_state.upsert_inbound_payment(
                         payment_hash,
                         HTLCStatus::Pending,
-                        preimage,
+                        None,
                         payment_secret,
                         Some(amount_msat),
                         unlocked_state.channel_manager.get_our_node_id(),
@@ -2287,33 +2364,55 @@ pub(crate) async fn start_ldk(
     };
 
     // Background task: monitor claimable HTLCs for expiry/deadline and fail them.
-    {
-        let unlocked_state_claimable = Arc::clone(&unlocked_state);
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(Duration::from_secs(30)).await;
-                let now = get_current_timestamp();
-                let height = unlocked_state_claimable
-                    .channel_manager
-                    .current_best_block()
-                    .height;
-                let expired = unlocked_state_claimable.expire_claimables(now, height);
-                for claimable in expired {
-                    unlocked_state_claimable
-                        .channel_manager
-                        .fail_htlc_backwards(&claimable.payment_hash);
-                    unlocked_state_claimable.upsert_inbound_payment(
-                        claimable.payment_hash,
-                        HTLCStatus::Failed,
-                        claimable.payment_preimage,
-                        None,
-                        Some(claimable.amount_msat),
-                        unlocked_state_claimable.channel_manager.get_our_node_id(),
-                    );
-                }
+    let stop_claimable_expiry = Arc::clone(&stop_processing);
+    let unlocked_state_claimable = Arc::clone(&unlocked_state);
+    let claimable_expiry_task = tokio::spawn(async move {
+        loop {
+            if stop_claimable_expiry.load(Ordering::Acquire) {
+                return;
             }
-        });
-    }
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            if stop_claimable_expiry.load(Ordering::Acquire) {
+                return;
+            }
+            let now = get_current_timestamp();
+            let height = unlocked_state_claimable
+                .channel_manager
+                .current_best_block()
+                .height;
+            let expired = unlocked_state_claimable.expire_claimables(now, height);
+            for claimable in expired {
+                // expire_claimables() already removed it atomically, so we own it now
+                // Note: There's a potential race where user might call invoice_settle()/invoice_cancel()
+                // at the same time, but the mutex in get_claimable_htlcs() protects against this.
+                // If user already took it via take_claimable_payment(), expire_claimables() won't
+                // return it, so this is safe.
+                
+                tracing::info!(
+                    "Expiring claimable payment {:?} (deadline: {:?}, expiry: {:?})",
+                    claimable.payment_hash,
+                    claimable.claim_deadline_height,
+                    claimable.invoice_expiry
+                );
+                
+                // Fail the HTLC backwards - this may be a no-op if already claimed/failed,
+                // but LDK should handle that gracefully
+                unlocked_state_claimable
+                    .channel_manager
+                    .fail_htlc_backwards(&claimable.payment_hash);
+                
+                // Update payment status to Failed
+                unlocked_state_claimable.upsert_inbound_payment(
+                    claimable.payment_hash,
+                    HTLCStatus::Failed,
+                    None,
+                    None,
+                    Some(claimable.amount_msat),
+                    unlocked_state_claimable.channel_manager.get_our_node_id(),
+                );
+            }
+        }
+    });
 
     // Background Processing
     let (bp_exit, bp_exit_check) = tokio::sync::watch::channel(());
@@ -2448,6 +2547,7 @@ pub(crate) async fn start_ldk(
             peer_manager: peer_manager.clone(),
             bp_exit,
             background_processor: Some(background_processor),
+            claimable_expiry_task: Some(claimable_expiry_task),
         },
         unlocked_state,
     ))
@@ -2471,6 +2571,12 @@ impl AppState {
             .stop_processing
             .store(true, Ordering::Release);
         ldk_background_services.peer_manager.disconnect_all_peers();
+
+        // Stop the claimable expiry task - abort it for immediate shutdown
+        // (it would exit gracefully via stop_processing flag, but aborting ensures immediate stop)
+        if let Some(claimable_task) = ldk_background_services.claimable_expiry_task.take() {
+            claimable_task.abort();
+        }
 
         // Stop the background processor.
         if !ldk_background_services.bp_exit.is_closed() {

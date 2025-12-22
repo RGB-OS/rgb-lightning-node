@@ -85,7 +85,8 @@ use crate::swap::{SwapData, SwapInfo, SwapString};
 use crate::utils::{
     check_already_initialized, check_channel_id, check_password_strength, check_password_validity,
     encrypt_and_save_mnemonic, get_max_local_rgb_amount, get_mnemonic_path, get_route, hex_str,
-    hex_str_to_compressed_pubkey, hex_str_to_vec, UnlockedAppState, UserOnionMessageContents,
+    hex_str_to_compressed_pubkey, hex_str_to_vec, validate_and_parse_payment_hash,
+    validate_and_parse_payment_preimage, UnlockedAppState, UserOnionMessageContents,
 };
 use crate::{
     backup::{do_backup, restore_backup},
@@ -635,8 +636,8 @@ pub(crate) struct InvoiceStatusResponse {
 
 #[derive(Deserialize, Serialize)]
 pub(crate) struct InvoiceSettleRequest {
-    pub(crate) invoice: String,
-    pub(crate) payment_preimage: Option<String>, // Externally discovered pre-image that should be used to settle the hold invoice.
+    pub(crate) payment_hash: String,
+    pub(crate) payment_preimage: String,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -2603,7 +2604,6 @@ pub(crate) async fn ln_invoice(
                 mode: InvoiceMode::AutoClaim,
                 expected_amt_msat: payload.amt_msat.or_else(|| invoice.amount_milli_satoshis()),
                 expiry: Some(expiry_ts),
-                preimage: None,
                 external_ref: None,
             },
         );
@@ -2642,19 +2642,7 @@ pub(crate) async fn invoice_hodl(
             RgbLibNetwork::Signet => Currency::Signet,
         };
 
-        let payment_hash_str = payload.payment_hash.clone();
-        if payment_hash_str.is_empty() {
-            return Err(APIError::InvalidPaymentHash("missing payment_hash".into()));
-        }
-        let hash_vec = hex_str_to_vec(&payment_hash_str)
-            .ok_or(APIError::InvalidPaymentHash(payment_hash_str.clone()))?;
-        if hash_vec.len() != 32 {
-            return Err(APIError::InvalidPaymentHash(payment_hash_str));
-        }
-        let hash_bytes: [u8; 32] = hash_vec
-            .try_into()
-            .map_err(|_| APIError::InvalidPaymentHash(payment_hash_str.clone()))?;
-        let payment_hash = PaymentHash(hash_bytes);
+        let payment_hash = validate_and_parse_payment_hash(&payload.payment_hash)?;
 
         let duration_since_epoch = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -2700,7 +2688,6 @@ pub(crate) async fn invoice_hodl(
                 mode: InvoiceMode::Hodl,
                 expected_amt_msat: payload.amt_msat.or_else(|| invoice.amount_milli_satoshis()),
                 expiry: Some(expiry_ts),
-                preimage: None,
                 external_ref: payload.external_ref.clone(),
             },
         );
@@ -2721,21 +2708,8 @@ pub(crate) async fn invoice_settle(
         let guard = state.check_unlocked().await?;
         let unlocked_state = guard.as_ref().unwrap();
 
-        let invoice = Bolt11Invoice::from_str(&payload.invoice)
-            .map_err(|e| APIError::InvalidInvoice(e.to_string()))?;
-        let payment_hash = PaymentHash(invoice.payment_hash().to_byte_array());
-
-        let provided_preimage = if let Some(preimage_hex) = payload.payment_preimage.clone() {
-            let preimage_vec = hex_str_to_vec(&preimage_hex);
-            if preimage_vec.as_ref().map(|v| v.len()) != Some(32) {
-                    return Err(APIError::InvalidPaymentPreimage);
-            }
-            Some(PaymentPreimage(
-                preimage_vec.unwrap().try_into().unwrap(),
-            ))
-        } else {
-            None
-        };
+        let payment_hash = validate_and_parse_payment_hash(&payload.payment_hash)?;
+        let preimage = validate_and_parse_payment_preimage(&payload.payment_preimage, &payment_hash)?;
 
         let metadata = unlocked_state
             .invoice_metadata()
@@ -2743,13 +2717,12 @@ pub(crate) async fn invoice_settle(
             .cloned()
             .ok_or(APIError::UnknownLNInvoice)?;
 
-        
         if metadata.mode != InvoiceMode::Hodl {
             return Err(APIError::InvoiceNotHodl);
         }
 
         let claimable = unlocked_state
-            .take_claimable_payment(&payment_hash)
+            .claimable_payment(&payment_hash)
             .ok_or(APIError::InvoiceNotClaimable)?;
 
         let current_height = unlocked_state
@@ -2763,20 +2736,17 @@ pub(crate) async fn invoice_settle(
         }
 
         let now = get_current_timestamp();
-        if let Some(expiry) = claimable.invoice_expiry {
+        if let Some(expiry) = metadata.expiry {
             if now >= expiry {
                 return Err(APIError::InvoiceExpired);
             }
         }
 
-        let preimage = provided_preimage
-            .or(claimable.payment_preimage)
-            .or(metadata.preimage)
-            .ok_or(APIError::MissingPaymentPreimage)?;
-        let computed_hash = PaymentHash(Sha256::hash(&preimage.0).to_byte_array());
-        if computed_hash != payment_hash {
-            return Err(APIError::InvalidPaymentHash(hex_str(&payment_hash.0)));
-        }
+        // All validations passed; now remove the claimable to avoid double-settlement.
+        let _ = unlocked_state
+            .take_claimable_payment(&payment_hash)
+            .ok_or(APIError::InvoiceNotClaimable)?;
+
         unlocked_state.channel_manager.claim_funds(preimage);
 
         Ok(Json(EmptyResponse {}))
@@ -2792,13 +2762,7 @@ pub(crate) async fn invoice_cancel(
         let guard = state.check_unlocked().await?;
         let unlocked_state = guard.as_ref().unwrap();
 
-        let hash_vec = hex_str_to_vec(&payload.payment_hash)
-            .ok_or_else(|| APIError::InvalidPaymentHash(payload.payment_hash.clone()))?;
-        if hash_vec.len() != 32 {
-            return Err(APIError::InvalidPaymentHash(payload.payment_hash.clone()));
-        }
-        let payment_hash =
-            PaymentHash(hash_vec.try_into().map_err(|_| APIError::InvalidPaymentHash(payload.payment_hash.clone()))?);
+        let payment_hash = validate_and_parse_payment_hash(&payload.payment_hash)?;
 
         let metadata = unlocked_state
             .invoice_metadata()

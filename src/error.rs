@@ -246,9 +246,6 @@ pub enum APIError {
     #[error("Unable to find payment preimage, be sure you've provided the correct swap info")]
     MissingSwapPaymentPreimage,
 
-    #[error("Missing payment preimage")]
-    MissingPaymentPreimage,
-
     #[error("Invalid payment preimage")]
     InvalidPaymentPreimage,
 
@@ -472,7 +469,6 @@ impl IntoResponse for APIError {
             | APIError::InvalidTransportEndpoints(_)
             | APIError::MediaFileEmpty
             | APIError::MediaFileNotProvided
-            | APIError::MissingPaymentPreimage
             | APIError::MissingSwapPaymentPreimage
             | APIError::OutputBelowDustLimit
             | APIError::ClaimDeadlineExceeded
