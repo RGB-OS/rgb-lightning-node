@@ -2644,6 +2644,18 @@ pub(crate) async fn invoice_hodl(
 
         let payment_hash = validate_and_parse_payment_hash(&payload.payment_hash)?;
 
+        // Reject reusing a payment hash that already exists in any of the known stores.
+        let hash_already_used = unlocked_state
+            .invoice_metadata()
+            .contains_key(&payment_hash)
+            || unlocked_state
+                .inbound_payments()
+                .contains_key(&payment_hash)
+            || unlocked_state.claimable_payment(&payment_hash).is_some();
+        if hash_already_used {
+            return Err(APIError::PaymentHashAlreadyUsed);
+        }
+
         let duration_since_epoch = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_err(|_| APIError::FailedInvoiceCreation("system time before UNIX_EPOCH".into()))?;

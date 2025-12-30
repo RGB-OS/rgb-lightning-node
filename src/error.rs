@@ -162,6 +162,9 @@ pub enum APIError {
     #[error("Invalid payment hash: {0}")]
     InvalidPaymentHash(String),
 
+    #[error("Payment hash already used")]
+    PaymentHashAlreadyUsed,
+
     #[error("Invalid payment secret")]
     InvalidPaymentSecret,
 
@@ -452,6 +455,7 @@ impl IntoResponse for APIError {
             | APIError::InvalidOnionData(_)
             | APIError::InvalidPassword(_)
             | APIError::InvalidPaymentHash(_)
+            | APIError::PaymentHashAlreadyUsed
             | APIError::InvalidPaymentSecret
             | APIError::InvalidPaymentPreimage
             | APIError::InvalidPeerInfo(_)
