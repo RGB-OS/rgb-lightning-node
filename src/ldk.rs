@@ -1055,6 +1055,11 @@ async fn handle_ldk_events(
                     receiver_node_id.unwrap(),
                 );
             }
+
+            // Only HODL invoices create claimable entries; auto-claim payments won't have one.
+            if unlocked_state.claimable_payment(&payment_hash).is_some() {
+                let _ = unlocked_state.take_claimable_payment(&payment_hash);
+            }
         }
         Event::PaymentSent {
             payment_preimage,

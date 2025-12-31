@@ -2754,15 +2754,8 @@ pub(crate) async fn invoice_settle(
             }
         }
 
-        // All validations passed; now remove the claimable to avoid double-settlement.
-        let claimed = unlocked_state.channel_manager.claim_funds(preimage);
-        if !claimed {
-            // If LDK rejected the claim (e.g. HTLC already timed out/unknown), keep the claimable
-            // entry so the caller can retry or cancel.
-            return Err(APIError::InvoiceNotClaimable);
-        }
-        // Best-effort cleanup; ignore if another task removed it concurrently.
-        let _ = unlocked_state.take_claimable_payment(&payment_hash);
+        // All validations passed; now claim the funds.
+        unlocked_state.channel_manager.claim_funds(preimage);
 
         Ok(Json(EmptyResponse {}))
     })
@@ -2793,14 +2786,12 @@ pub(crate) async fn invoice_cancel(
             .claimable_payment(&payment_hash)
             .ok_or(APIError::InvoiceNotClaimable)?;
 
-        let ok = unlocked_state
+        // Best-effort cancel: LDK doesn't report sync success here, so just clear the
+        // claimable entry and let later events update status if it was already claimed.
+        unlocked_state
             .channel_manager
             .fail_htlc_backwards(&payment_hash);
-        if !ok {
-            // HTLC might already be gone; keep claimable so it can be retried/settled.
-            return Err(APIError::InvoiceNotClaimable);
-        }
-        // Best-effort cleanup after a successful fail; ignore if already removed.
+        // Best-effort cleanup; ignore if already removed.
         let _ = unlocked_state.take_claimable_payment(&payment_hash);
 
         unlocked_state.upsert_inbound_payment(
