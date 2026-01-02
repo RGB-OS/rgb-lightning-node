@@ -620,6 +620,7 @@ pub(crate) struct InitResponse {
 pub(crate) enum InvoiceStatus {
     Pending,
     Succeeded,
+    Cancelled,
     Failed,
     Expired,
 }
@@ -1793,7 +1794,7 @@ pub(crate) async fn invoice_status(
             HTLCStatus::Pending => InvoiceStatus::Pending,
             HTLCStatus::Succeeded => InvoiceStatus::Succeeded,
             HTLCStatus::Failed => InvoiceStatus::Failed,
-            HTLCStatus::Cancelled => InvoiceStatus::Failed,
+            HTLCStatus::Cancelled => InvoiceStatus::Cancelled,
         },
         None => return Err(APIError::UnknownLNInvoice),
     };

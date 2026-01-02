@@ -1615,6 +1615,7 @@ components:
       enum:
         - Pending
         - Succeeded
+        - Cancelled
         - Failed
         - Expired
     InvoiceStatusRequest:
