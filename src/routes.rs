@@ -2713,6 +2713,11 @@ pub(crate) async fn invoice_hodl(
     .await
 }
 
+/// Settle a HODL invoice that currently has a held HTLC. Requires the invoice
+/// `payment_hash` and the matching 32-byte `payment_preimage`. Fails if the
+/// invoice is not HODL, there is no claimable HTLC (already cancelled, expired
+/// or failed), the HTLC has timed out, or the preimage doesn't match.
+/// If the invoice is already settled, this call succeeds (idempotent).
 pub(crate) async fn invoice_settle(
     State(state): State<Arc<AppState>>,
     WithRejection(Json(payload), _): WithRejection<Json<InvoiceSettleRequest>, APIError>,
