@@ -134,6 +134,26 @@ async fn invoice_settle_expect_error(
     .await;
 }
 
+async fn invoice_cancel_expect_error(
+    node_address: SocketAddr,
+    payment_hash: String,
+    expected_status: StatusCode,
+    expected_message: &str,
+    expected_name: &str,
+) {
+    println!("cancelling HODL invoice {payment_hash} on node {node_address}");
+    let payload = InvoiceCancelRequest { payment_hash };
+    invoice_post_expect_error(
+        node_address,
+        "/invoice/cancel",
+        &payload,
+        expected_status,
+        expected_message,
+        expected_name,
+    )
+    .await;
+}
+
 fn expect_api_ok<T>(result: Result<T, APIError>, context: &str) -> T {
     match result {
         Ok(value) => value,
@@ -149,6 +169,22 @@ fn claimable_exists(node_test_dir: &str, payment_hash_hex: &str) -> Result<bool,
     let storage = read_claimable_htlcs(&claimable_path);
     let hash = validate_and_parse_payment_hash(payment_hash_hex)?;
     Ok(storage.payments.contains_key(&hash))
+}
+
+/// Get the claim_deadline_height for a claimable, if present on disk.
+fn claimable_deadline_height(
+    node_test_dir: &str,
+    payment_hash_hex: &str,
+) -> Result<Option<u32>, APIError> {
+    let claimable_path = Path::new(node_test_dir)
+        .join(LDK_DIR)
+        .join(CLAIMABLE_HTLCS_FNAME);
+    let storage = read_claimable_htlcs(&claimable_path);
+    let hash = validate_and_parse_payment_hash(payment_hash_hex)?;
+    Ok(storage
+        .payments
+        .get(&hash)
+        .and_then(|c| c.claim_deadline_height))
 }
 
 /// Poll until the claimable entry appears or disappears (bounded by timeout).
@@ -213,6 +249,51 @@ async fn settle_hodl_invoice() {
     );
 }
 
+/// Idempotency: settling twice should both succeed (LDK/LND behavior).
+#[serial_test::serial]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[traced_test]
+async fn settle_twice_succeeds() {
+    initialize();
+
+    // Arrange: start two nodes, fund, and open a channel.
+    let (node1_addr, node2_addr, _test_dir_node1, test_dir_node2) =
+        setup_two_nodes_with_channel("settle-twice", 5).await;
+
+    // Arrange: create a HODL invoice with a fixed payment hash.
+    let (preimage_hex, payment_hash_hex) = random_preimage_and_hash();
+    let InvoiceHodlResponse { invoice, .. } =
+        invoice_hodl(node2_addr, Some(45_000), 900, payment_hash_hex.clone()).await;
+    let decoded = decode_ln_invoice(node1_addr, &invoice).await;
+    assert_eq!(decoded.payment_hash, payment_hash_hex);
+
+    // Act: pay the invoice; HODL keeps it pending and claimable.
+    let _ = send_payment_with_status(node1_addr, invoice.clone(), HTLCStatus::Pending).await;
+    expect_api_ok(
+        wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
+        "wait for claimable entry to appear",
+    );
+
+    // Act: first settle with the chosen preimage.
+    invoice_settle(node2_addr, payment_hash_hex.clone(), preimage_hex.clone()).await;
+
+    // Assert: payer/payee succeed and claimable entry may be cleaned up later.
+    let payer_payment =
+        wait_for_ln_payment(node1_addr, &decoded.payment_hash, HTLCStatus::Succeeded).await;
+    assert_eq!(payer_payment.status, HTLCStatus::Succeeded);
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Succeeded).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Succeeded);
+    assert!(matches!(
+        invoice_status(node2_addr, &invoice).await,
+        InvoiceStatus::Succeeded
+    ));
+
+    // Act: settle again with the same preimage; should be idempotent success.
+    invoice_settle(node2_addr, payment_hash_hex.clone(), preimage_hex.clone()).await;
+}
+
+/// Cancel and then try to cancel again (the second call fails).
 #[serial_test::serial]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 #[traced_test]
@@ -256,8 +337,93 @@ async fn cancel_hodl_invoice() {
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, false).await,
         "wait for claimable entry to be removed",
     );
+
+    // Duplicate cancel should fail.
+    invoice_cancel_expect_error(
+        node2_addr,
+        payment_hash_hex,
+        StatusCode::FORBIDDEN,
+        "No claimable HTLC found for this invoice",
+        "InvoiceNotClaimable",
+    )
+    .await;
 }
 
+/// Cacelling first must make a later settle fail (already cancelled).
+#[serial_test::serial]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[traced_test]
+async fn cancel_then_settle_fails() {
+    initialize();
+
+    let (node1_addr, node2_addr, _test_dir_node1, test_dir_node2) =
+        setup_two_nodes_with_channel("cancel-settle", 11).await;
+
+    let (preimage_hex, payment_hash_hex) = random_preimage_and_hash();
+    let InvoiceHodlResponse { invoice, .. } =
+        invoice_hodl(node2_addr, Some(40_000), 900, payment_hash_hex.clone()).await;
+    let decoded = decode_ln_invoice(node1_addr, &invoice).await;
+
+    let _ = send_payment_with_status(node1_addr, invoice.clone(), HTLCStatus::Pending).await;
+    expect_api_ok(
+        wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
+        "claimable entry should appear",
+    );
+
+    invoice_cancel(node2_addr, payment_hash_hex.clone()).await;
+
+    invoice_settle_expect_error(
+        node2_addr,
+        payment_hash_hex.clone(),
+        preimage_hex,
+        StatusCode::FORBIDDEN,
+        "No claimable HTLC found for this invoice",
+        "InvoiceNotClaimable",
+    )
+    .await;
+
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Cancelled).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Cancelled);
+}
+
+/// Settling first must make a later cancel fail (already settled).
+#[serial_test::serial]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[traced_test]
+async fn settle_then_cancel_fails() {
+    initialize();
+
+    let (node1_addr, node2_addr, _test_dir_node1, test_dir_node2) =
+        setup_two_nodes_with_channel("settle-cancel", 12).await;
+
+    let (preimage_hex, payment_hash_hex) = random_preimage_and_hash();
+    let InvoiceHodlResponse { invoice, .. } =
+        invoice_hodl(node2_addr, Some(42_000), 900, payment_hash_hex.clone()).await;
+    let decoded = decode_ln_invoice(node1_addr, &invoice).await;
+
+    let _ = send_payment_with_status(node1_addr, invoice.clone(), HTLCStatus::Pending).await;
+    expect_api_ok(
+        wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
+        "claimable entry should appear",
+    );
+
+    invoice_settle(node2_addr, payment_hash_hex.clone(), preimage_hex).await;
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Succeeded).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Succeeded);
+
+    invoice_cancel_expect_error(
+        node2_addr,
+        payment_hash_hex.clone(),
+        StatusCode::FORBIDDEN,
+        "No claimable HTLC found for this invoice",
+        "InvoiceNotClaimable",
+    )
+    .await;
+}
+
+/// Expiry via short invoice timeout: ensure settle/cancel fail after expiry.
 #[serial_test::serial]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 #[traced_test]
@@ -298,6 +464,93 @@ async fn expire_hodl_invoice() {
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, false).await,
         "wait for claimable entry to be removed",
     );
+
+    // After expiry, settle/cancel should fail.
+    invoice_settle_expect_error(
+        node2_addr,
+        payment_hash_hex.clone(),
+        _preimage_hex,
+        StatusCode::FORBIDDEN,
+        "No claimable HTLC found for this invoice",
+        "InvoiceNotClaimable",
+    )
+    .await;
+    invoice_cancel_expect_error(
+        node2_addr,
+        payment_hash_hex,
+        StatusCode::FORBIDDEN,
+        "No claimable HTLC found for this invoice",
+        "InvoiceNotClaimable",
+    )
+    .await;
+}
+
+/// Expiry driven by CLTV/blocks: mine past deadline, then settle/cancel must fail.
+#[serial_test::serial]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[traced_test]
+async fn expire_hodl_invoice_by_blocks() {
+    initialize();
+
+    // Arrange: start two nodes, fund, and open a channel.
+    let (node1_addr, node2_addr, _test_dir_node1, test_dir_node2) =
+        setup_two_nodes_with_channel("expiry-blocks", 25).await;
+
+    // Arrange: create a HODL invoice with standard expiry.
+    let (_preimage_hex, payment_hash_hex) = random_preimage_and_hash();
+    let InvoiceHodlResponse { invoice, .. } =
+        invoice_hodl(node2_addr, Some(30_000), 900, payment_hash_hex.clone()).await;
+    let decoded = decode_ln_invoice(node1_addr, &invoice).await;
+    assert_eq!(decoded.payment_hash, payment_hash_hex);
+
+    // Pay and wait for claimable.
+    let _ = send_payment_with_status(node1_addr, invoice.clone(), HTLCStatus::Pending).await;
+    expect_api_ok(
+        wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
+        "wait for claimable entry to appear",
+    );
+
+    // Mine past the claim deadline height (reported by LDK) to force timeout, then
+    // give the 30s expiry task a chance to sweep it.
+    let deadline_height = claimable_deadline_height(&test_dir_node2, &payment_hash_hex)
+        .expect("read deadline height")
+        .expect("expected claim_deadline_height for claimable HTLC");
+    let current_height = super::get_block_count();
+    let blocks_to_mine = deadline_height.saturating_sub(current_height) + 2;
+    super::mine_n_blocks(false, blocks_to_mine as u16);
+    tokio::time::sleep(std::time::Duration::from_secs(35)).await;
+
+    // Assert: both sides see Failed and claimable entry is removed.
+    let payer_payment =
+        wait_for_ln_payment(node1_addr, &decoded.payment_hash, HTLCStatus::Failed).await;
+    assert_eq!(payer_payment.status, HTLCStatus::Failed);
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Failed).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Failed);
+    assert!(matches!(invoice_status(node2_addr, &invoice).await, InvoiceStatus::Failed));
+    expect_api_ok(
+        wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, false).await,
+        "wait for claimable entry to be removed",
+    );
+
+    // After expiry, settle/cancel should fail.
+    invoice_settle_expect_error(
+        node2_addr,
+        payment_hash_hex.clone(),
+        _preimage_hex,
+        StatusCode::FORBIDDEN,
+        "No claimable HTLC found for this invoice",
+        "InvoiceNotClaimable",
+    )
+    .await;
+    invoice_cancel_expect_error(
+        node2_addr,
+        payment_hash_hex,
+        StatusCode::FORBIDDEN,
+        "No claimable HTLC found for this invoice",
+        "InvoiceNotClaimable",
+    )
+    .await;
 }
 
 #[serial_test::serial]
@@ -311,7 +564,7 @@ async fn reject_wrong_preimage_settle() {
         setup_two_nodes_with_channel("wrong_preimage", 30).await;
 
     // Arrange: create a HODL invoice and pay it (pending).
-    let (_preimage_hex, payment_hash_hex) = random_preimage_and_hash();
+    let (good_preimage_hex, payment_hash_hex) = random_preimage_and_hash();
     let InvoiceHodlResponse { invoice, .. } =
         invoice_hodl(node2_addr, Some(35_000), 900, payment_hash_hex.clone()).await;
     let decoded = decode_ln_invoice(node1_addr, &invoice).await;
@@ -341,6 +594,12 @@ async fn reject_wrong_preimage_settle() {
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
         "wait for claimable entry to remain",
     );
+
+    // Now settle with the correct preimage; should succeed and clean up.
+    invoice_settle(node2_addr, payment_hash_hex.clone(), good_preimage_hex).await;
+    let _ =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Succeeded).await;
+    assert!(matches!(invoice_status(node2_addr, &invoice).await, InvoiceStatus::Succeeded));
 }
 
 #[serial_test::serial]
