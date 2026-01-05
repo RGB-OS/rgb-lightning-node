@@ -2739,6 +2739,20 @@ pub(crate) async fn invoice_settle(
             return Err(APIError::InvoiceNotHodl);
         }
 
+        // Idempotent path: if this payment already succeeded, validate preimage and return OK.
+        // This avoids failing when the claimable entry has already been cleaned up by PaymentClaimed.
+        if let Some(existing) = unlocked_state.inbound_payments().get(&payment_hash) {
+            if matches!(existing.status, HTLCStatus::Succeeded) {
+                if let Some(stored_preimage) = existing.preimage {
+                    if stored_preimage != preimage {
+                        return Err(APIError::InvalidPaymentPreimage);
+                    }
+                }
+                // Already settled with matching preimage; idempotent success.
+                return Ok(Json(EmptyResponse {}));
+            }
+        }
+
         // Atomically take the claimable entry so the expiry task cannot fail it between
         // validation and claim_funds.
         let _claimable = unlocked_state.mark_claimable_settling(
