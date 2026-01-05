@@ -2734,26 +2734,12 @@ pub(crate) async fn invoice_settle(
             return Err(APIError::InvoiceNotHodl);
         }
 
-        let claimable = unlocked_state
-            .claimable_payment(&payment_hash)
-            .ok_or(APIError::InvoiceNotClaimable)?;
-
-        let current_height = unlocked_state
-            .channel_manager
-            .current_best_block()
-            .height;
-        if let Some(deadline_height) = claimable.claim_deadline_height {
-            if current_height >= deadline_height {
-                return Err(APIError::ClaimDeadlineExceeded);
-            }
-        }
-
-        let now = get_current_timestamp();
-        if let Some(expiry) = metadata.expiry {
-            if now >= expiry {
-                return Err(APIError::InvoiceExpired);
-            }
-        }
+        // Atomically take the claimable entry so the expiry task cannot fail it between
+        // validation and claim_funds.
+        let _claimable = unlocked_state.mark_claimable_settling(
+            &payment_hash,
+            metadata.expiry,
+        )?;
 
         // All validations passed; now claim the funds.
         unlocked_state.channel_manager.claim_funds(preimage);

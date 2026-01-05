@@ -179,6 +179,10 @@ pub(crate) struct ClaimablePayment {
     pub(crate) claim_deadline_height: Option<u32>,
     /// When we stored this claimable (seconds since epoch).
     pub(crate) created_at: u64,
+    /// Whether a settle is currently in-flight (prevents expiry task from failing it).
+    pub(crate) settling: Option<bool>,
+    /// When settlement was initiated (seconds since epoch), used to time out stalled settlements.
+    pub(crate) settling_since: Option<u64>,
 }
 
 impl_writeable_tlv_based!(ClaimablePayment, {
@@ -187,6 +191,8 @@ impl_writeable_tlv_based!(ClaimablePayment, {
     (4, invoice_expiry, required),
     (6, claim_deadline_height, required),
     (8, created_at, required),
+    (10, settling, option),
+    (12, settling_since, option),
 });
 
 pub(crate) struct InboundPaymentInfoStorage {
@@ -246,6 +252,18 @@ impl UnlockedAppState {
             .payments
             .iter()
             .filter_map(|(hash, c)| {
+                if c.settling.unwrap_or(false) {
+                    // Settlement in-flight; allow a timeout (24h) to avoid stuck entries.
+                    if let Some(since) = c.settling_since {
+                        if now_ts.saturating_sub(since) > 86_400 {
+                            // Timeout, let it expire.
+                        } else {
+                            return None;
+                        }
+                    } else {
+                        return None;
+                    }
+                }
                 let deadline_passed = c
                     .claim_deadline_height
                     .map(|h| current_height >= h)
@@ -375,6 +393,45 @@ impl UnlockedAppState {
             self.save_claimable_htlcs(claimables);
         }
         res
+    }
+
+    /// Mark a claimable HTLC as settling after revalidating expiry/deadline.
+    /// Keeps the entry so PaymentClaimed can remove it; expiry task will skip while settling=true.
+    pub(crate) fn mark_claimable_settling(
+        &self,
+        payment_hash: &PaymentHash,
+        invoice_expiry: Option<u64>,
+    ) -> Result<ClaimablePayment, APIError> {
+        let mut claimables = self.get_claimable_htlcs();
+        let Some(claimable) = claimables.payments.get_mut(payment_hash) else {
+            return Err(APIError::InvoiceNotClaimable);
+        };
+
+        let current_height = self
+            .channel_manager
+            .current_best_block()
+            .height;
+        let now_ts = get_current_timestamp();
+
+        if let Some(deadline_height) = claimable.claim_deadline_height {
+            if current_height >= deadline_height {
+                return Err(APIError::ClaimDeadlineExceeded);
+            }
+        }
+
+        if let Some(expiry) = invoice_expiry {
+            if now_ts >= expiry {
+                return Err(APIError::InvoiceExpired);
+            }
+        }
+
+        // Persist the settling flag so the expiry task won't race and fail it backwards.
+        claimable.settling = Some(true);
+        claimable.settling_since = Some(now_ts);
+        let claimable_clone = claimable.clone();
+        self.save_claimable_htlcs(claimables);
+
+        Ok(claimable_clone)
     }
 
     pub(crate) fn claimable_payment(&self, payment_hash: &PaymentHash) -> Option<ClaimablePayment> {
@@ -995,6 +1052,8 @@ async fn handle_ldk_events(
                         invoice_expiry: metadata.expiry,
                         claim_deadline_height,
                         created_at: now_ts,
+                        settling: Some(false),
+                        settling_since: None,
                     };
                     unlocked_state.upsert_claimable_payment(claimable);
                     unlocked_state.upsert_inbound_payment(
