@@ -50,7 +50,7 @@ use crate::routes::{
     list_peers, list_swaps, list_transactions, list_transfers, list_unspents, ln_invoice, lock,
     maker_execute, maker_init, network_info, node_info, open_channel, post_asset_media,
     refresh_transfers, restore, revoke_token, rgb_invoice, send_asset, send_btc,
-    send_onion_message, send_payment, shutdown, sign_message, sync, taker, unlock,
+    send_onion_message, send_payment, shutdown, sign_message, sync, taker, unlock, invoice_hodl, invoice_settle, invoice_cancel
 };
 use crate::utils::{start_daemon, AppState, LOGS_DIR};
 
@@ -139,6 +139,9 @@ pub(crate) async fn app(args: UserArgs) -> Result<(Router, Arc<AppState>), AppEr
         .route("/listtransfers", post(list_transfers))
         .route("/listunspents", post(list_unspents))
         .route("/lninvoice", post(ln_invoice))
+        .route("/invoice/hodl", post(invoice_hodl))
+        .route("/invoice/settle", post(invoice_settle))
+        .route("/invoice/cancel", post(invoice_cancel))
         .route("/lock", post(lock))
         .route("/makerexecute", post(maker_execute))
         .route("/makerinit", post(maker_init))

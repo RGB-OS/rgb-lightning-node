@@ -49,6 +49,20 @@ _wait_for_bitcoind() {
     done
 }
 
+_wait_for_bitcoind_rpc() {
+    # wait for RPC to accept requests
+    start_time=$(date +%s)
+    until $BITCOIN_CLI getblockcount >/dev/null 2>&1; do
+        current_time=$(date +%s)
+        if [ $((current_time - start_time)) -gt $TIMEOUT ]; then
+            echo "Timeout waiting for bitcoind RPC to start"
+            $COMPOSE logs bitcoind
+            exit 1
+        fi
+        sleep 1
+    done
+}
+
 _wait_for_electrs() {
     # wait for electrs to have completed startup
     start_time=$(date +%s)
@@ -74,9 +88,11 @@ _start_services() {
             _die "port $port is already bound, services can't be started"
         fi
     done
-    $COMPOSE up -d
+    $COMPOSE up -d bitcoind
     echo && echo "preparing bitcoind wallet"
     _wait_for_bitcoind
+    _wait_for_bitcoind_rpc
+    $COMPOSE up -d electrs proxy
     $BITCOIN_CLI createwallet miner >/dev/null
     $BITCOIN_CLI -rpcwallet=miner -generate $INITIAL_BLOCKS >/dev/null
     echo "waiting for electrs to have completed startup"
