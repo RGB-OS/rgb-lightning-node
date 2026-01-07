@@ -8,7 +8,7 @@ use bitcoin_bech32::WitnessProgram;
 use lightning::chain::{chainmonitor, ChannelMonitorUpdateStatus};
 use lightning::chain::{BestBlock, Filter, Watch};
 use lightning::events::bump_transaction::{BumpTransactionEventHandler, Wallet};
-use lightning::events::{Event, PaymentFailureReason, PaymentPurpose};
+use lightning::events::{Event, PaymentFailureReason, PaymentPurpose, ReplayEvent};
 use lightning::ln::channelmanager::{self, PaymentId, RecentPaymentDetails};
 use lightning::ln::channelmanager::{
     ChainParameters, ChannelManagerReadArgs, SimpleArcChannelManager,
@@ -94,7 +94,8 @@ use crate::swap::SwapData;
 use crate::utils::{
     check_port_is_available, connect_peer_if_necessary, do_connect_peer, get_current_timestamp,
     hex_str, AppState, StaticState, UnlockedAppState, ELECTRUM_URL_MAINNET, ELECTRUM_URL_REGTEST,
-    ELECTRUM_URL_SIGNET, ELECTRUM_URL_TESTNET, PROXY_ENDPOINT_LOCAL, PROXY_ENDPOINT_PUBLIC,
+    ELECTRUM_URL_SIGNET, ELECTRUM_URL_TESTNET, ELECTRUM_URL_TESTNET4, PROXY_ENDPOINT_LOCAL,
+    PROXY_ENDPOINT_PUBLIC,
 };
 
 pub(crate) const FEE_RATE: u64 = 7;
@@ -505,7 +506,7 @@ async fn handle_ldk_events(
     event: Event,
     unlocked_state: Arc<UnlockedAppState>,
     static_state: Arc<StaticState>,
-) {
+) -> Result<(), ReplayEvent> {
     match event {
         Event::FundingGenerationReady {
             temporary_channel_id,
@@ -518,7 +519,9 @@ async fn handle_ldk_events(
                 output_script.as_bytes(),
                 match static_state.network {
                     BitcoinNetwork::Mainnet => bitcoin_bech32::constants::Network::Bitcoin,
-                    BitcoinNetwork::Testnet => bitcoin_bech32::constants::Network::Testnet,
+                    BitcoinNetwork::Testnet | BitcoinNetwork::Testnet4 => {
+                        bitcoin_bech32::constants::Network::Testnet
+                    }
                     BitcoinNetwork::Regtest => bitcoin_bech32::constants::Network::Regtest,
                     BitcoinNetwork::Signet => bitcoin_bech32::constants::Network::Signet,
                 },
@@ -578,6 +581,7 @@ async fn handle_ldk_events(
 
             let funding_tx = psbt.clone().extract_tx().unwrap();
             let funding_txid = funding_tx.compute_txid().to_string();
+            tracing::info!("Funding TXID: {funding_txid}");
 
             let psbt_path = static_state
                 .ldk_data_dir
@@ -598,11 +602,8 @@ async fn handle_ldk_events(
                 .await
                 .unwrap();
 
-                let transfer_dir = unlocked_state.rgb_get_transfer_dir(&funding_txid);
-                let asset_transfer_dir =
-                    unlocked_state.rgb_get_asset_transfer_dir(transfer_dir, &asset_id);
                 let consignment_path =
-                    unlocked_state.rgb_get_send_consignment_path(asset_transfer_dir);
+                    unlocked_state.rgb_get_send_consignment_path(&asset_id, &funding_txid);
                 let proxy_url = TransportEndpoint::new(unlocked_state.proxy_endpoint.clone())
                     .unwrap()
                     .endpoint;
@@ -613,7 +614,7 @@ async fn handle_ldk_events(
                         funding_txid.clone(),
                         &consignment_path,
                         funding_txid,
-                        Some(0),
+                        None,
                     )
                 })
                 .await
@@ -621,7 +622,7 @@ async fn handle_ldk_events(
 
                 if let Err(e) = res {
                     tracing::error!("cannot post consignment: {e}");
-                    return;
+                    return Err(ReplayEvent());
                 }
             }
 
@@ -983,15 +984,24 @@ async fn handle_ldk_events(
 
                 let state_copy = unlocked_state.clone();
                 let psbt_str_copy = psbt_str.clone();
+
+                let is_chan_colored =
+                    is_channel_rgb(&channel_id, &PathBuf::from(&static_state.ldk_data_dir));
+                tracing::info!("Initiator of the channel (colored: {})", is_chan_colored);
+
                 let _txid = tokio::task::spawn_blocking(move || {
-                    if is_channel_rgb(&channel_id, &PathBuf::from(&static_state.ldk_data_dir)) {
-                        state_copy.rgb_send_end(psbt_str_copy).unwrap().txid
+                    if is_chan_colored {
+                        state_copy.rgb_send_end(psbt_str_copy).map(|r| r.txid)
                     } else {
-                        state_copy.rgb_send_btc_end(psbt_str_copy).unwrap()
+                        state_copy.rgb_send_btc_end(psbt_str_copy)
                     }
                 })
                 .await
-                .unwrap();
+                .unwrap()
+                .map_err(|e| {
+                    tracing::error!("Error completing channel opening: {e:?}");
+                    ReplayEvent()
+                })?;
 
                 *unlocked_state.rgb_send_lock.lock().unwrap() = false;
             } else {
@@ -1000,13 +1010,13 @@ async fn handle_ldk_events(
                     .ldk_data_dir
                     .join(format!("consignment_{funding_txid}"));
                 if !consignment_path.exists() {
-                    return;
+                    // vanilla channel
+                    return Ok(());
                 }
                 let consignment =
                     RgbTransfer::load_file(consignment_path).expect("successful consignment load");
-                let contract_id = consignment.contract_id();
 
-                match unlocked_state.rgb_save_new_asset(contract_id, None) {
+                match unlocked_state.rgb_save_new_asset(consignment, funding_txid) {
                     Ok(_) => {}
                     Err(e) if e.to_string().contains("UNIQUE constraint failed") => {}
                     Err(e) => panic!("Failed saving asset: {e}"),
@@ -1070,7 +1080,7 @@ async fn handle_ldk_events(
             inbound_amount_msat,
             expected_outbound_amount_msat,
             inbound_rgb_amount,
-            expected_outbound_rgb_amount,
+            expected_outbound_rgb_payment,
             requested_next_hop_scid,
             prev_short_channel_id,
         } => {
@@ -1112,7 +1122,7 @@ async fn handle_ldk_events(
             let inbound_rgb_info = get_rgb_info(&inbound_channel.channel_id);
             let outbound_rgb_info = get_rgb_info(&outbound_channel.channel_id);
 
-            tracing::debug!("EVENT: Requested swap with params inbound_msat={} outbound_msat={} inbound_rgb={:?} outbound_rgb={:?} inbound_contract_id={:?}, outbound_contract_id={:?}", inbound_amount_msat, expected_outbound_amount_msat, inbound_rgb_amount, expected_outbound_rgb_amount, inbound_rgb_info.map(|i| i.0), outbound_rgb_info.map(|i| i.0));
+            tracing::debug!("EVENT: Requested swap with params inbound_msat={} outbound_msat={} inbound_rgb={:?} outbound_rgb={:?} inbound_contract_id={:?}, outbound_contract_id={:?}", inbound_amount_msat, expected_outbound_amount_msat, inbound_rgb_amount, expected_outbound_rgb_payment.map(|(_, a)| a), inbound_rgb_info.map(|i| i.0), expected_outbound_rgb_payment.map(|(c, _)| c));
 
             let swaps_lock = unlocked_state.taker_swaps.lock().unwrap();
             let whitelist_swap = match swaps_lock.swaps.get(&payment_hash) {
@@ -1122,7 +1132,7 @@ async fn handle_ldk_events(
                         .channel_manager
                         .fail_intercepted_htlc(intercept_id)
                         .unwrap();
-                    return;
+                    return Ok(());
                 }
                 Some(x) => x,
             };
@@ -1141,7 +1151,8 @@ async fn handle_ldk_events(
                 let net_msat_diff =
                     inbound_amount_msat.saturating_sub(expected_outbound_amount_msat);
 
-                if expected_outbound_rgb_amount != Some(whitelist_swap.swap_info.qty_from)
+                if expected_outbound_rgb_payment.map(|(_, a)| a)
+                    != Some(whitelist_swap.swap_info.qty_from)
                     || outbound_rgb_info.map(|x| x.0) != whitelist_swap.swap_info.from_asset
                     || net_msat_diff != whitelist_swap.swap_info.qty_to
                 {
@@ -1151,7 +1162,8 @@ async fn handle_ldk_events(
                 let net_msat_diff = inbound_amount_msat.checked_sub(expected_outbound_amount_msat);
 
                 if net_msat_diff != Some(0)
-                    || expected_outbound_rgb_amount != Some(whitelist_swap.swap_info.qty_from)
+                    || expected_outbound_rgb_payment.map(|(_, a)| a)
+                        != Some(whitelist_swap.swap_info.qty_from)
                     || outbound_rgb_info.map(|x| x.0) != whitelist_swap.swap_info.from_asset
                     || inbound_rgb_amount != Some(whitelist_swap.swap_info.qty_to)
                     || inbound_rgb_info.map(|x| x.0) != whitelist_swap.swap_info.to_asset
@@ -1169,7 +1181,7 @@ async fn handle_ldk_events(
                     .channel_manager
                     .fail_intercepted_htlc(intercept_id)
                     .unwrap();
-                return;
+                return Ok(());
             }
 
             tracing::debug!("Swap is whitelisted, forwarding the htlc...");
@@ -1182,7 +1194,7 @@ async fn handle_ldk_events(
                     channelmanager::NextHopForward::ShortChannelId(requested_next_hop_scid),
                     outbound_channel.counterparty.node_id,
                     expected_outbound_amount_msat,
-                    expected_outbound_rgb_amount,
+                    expected_outbound_rgb_payment,
                 )
                 .expect("Forward should be valid");
         }
@@ -1210,6 +1222,7 @@ async fn handle_ldk_events(
             });
         }
     }
+    Ok(())
 }
 
 impl OutputSpender for RgbOutputSpender {
@@ -1284,7 +1297,13 @@ impl OutputSpender for RgbOutputSpender {
                 new_asset = true;
                 let receive_data = self
                     .rgb_wallet_wrapper
-                    .witness_receive(None, None, vec![self.proxy_endpoint.clone()], 0)
+                    .witness_receive(
+                        None,
+                        Assignment::Any,
+                        None,
+                        vec![self.proxy_endpoint.clone()],
+                        0,
+                    )
                     .unwrap();
                 let script_pubkey = script_buf_from_recipient_id(receive_data.recipient_id.clone())
                     .unwrap()
@@ -1455,6 +1474,7 @@ pub(crate) async fn start_ldk(
         != match bitcoin_network {
             BitcoinNetwork::Mainnet => "main",
             BitcoinNetwork::Testnet => "test",
+            BitcoinNetwork::Testnet4 => "testnet4",
             BitcoinNetwork::Regtest => "regtest",
             BitcoinNetwork::Signet => "signet",
         }
@@ -1476,6 +1496,7 @@ pub(crate) async fn start_ldk(
             BitcoinNetwork::Regtest => ELECTRUM_URL_REGTEST,
             BitcoinNetwork::Signet => ELECTRUM_URL_SIGNET,
             BitcoinNetwork::Testnet => ELECTRUM_URL_TESTNET,
+            BitcoinNetwork::Testnet4 => ELECTRUM_URL_TESTNET4,
             BitcoinNetwork::Mainnet => ELECTRUM_URL_MAINNET,
         }
     };
@@ -1486,9 +1507,10 @@ pub(crate) async fn start_ldk(
     } else {
         tracing::info!("Using the default proxy");
         match bitcoin_network {
-            BitcoinNetwork::Signet | BitcoinNetwork::Testnet | BitcoinNetwork::Mainnet => {
-                PROXY_ENDPOINT_PUBLIC
-            }
+            BitcoinNetwork::Signet
+            | BitcoinNetwork::Testnet
+            | BitcoinNetwork::Testnet4
+            | BitcoinNetwork::Mainnet => PROXY_ENDPOINT_PUBLIC,
             BitcoinNetwork::Regtest => PROXY_ENDPOINT_LOCAL,
         }
     };
@@ -1999,10 +2021,7 @@ pub(crate) async fn start_ldk(
     let event_handler = move |event: Event| {
         let unlocked_state_copy = Arc::clone(&unlocked_state_copy);
         let static_state_copy = Arc::clone(&static_state_copy);
-        async move {
-            handle_ldk_events(event, unlocked_state_copy, static_state_copy).await;
-            Ok(())
-        }
+        async move { handle_ldk_events(event, unlocked_state_copy, static_state_copy).await }
     };
 
     // Background Processing
