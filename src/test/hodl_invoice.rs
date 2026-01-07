@@ -297,6 +297,84 @@ async fn settle_twice_succeeds() {
 
     // Act: settle again with the same preimage; should be idempotent success.
     invoice_settle(node2_addr, payment_hash_hex.clone(), preimage_hex.clone()).await;
+    let _ = wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Succeeded).await;
+}
+
+/// Idempotent settle with wrong preimage must fail and not change persisted status.
+#[serial_test::serial]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[traced_test]
+async fn settle_twice_wrong_preimage_fails() {
+    initialize();
+
+    let (node1_addr, node2_addr, _test_dir_node1, test_dir_node2) =
+        setup_two_nodes_with_channel("settle-twice-wrong", 6).await;
+
+    let (preimage_hex, payment_hash_hex) = random_preimage_and_hash();
+    let InvoiceHodlResponse { invoice, .. } =
+        invoice_hodl(node2_addr, Some(45_000), 900, payment_hash_hex.clone()).await;
+    let decoded = decode_ln_invoice(node1_addr, &invoice).await;
+
+    let _ = send_payment_with_status(node1_addr, invoice.clone(), HTLCStatus::Pending).await;
+    expect_api_ok(
+        wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
+        "wait for claimable entry to appear",
+    );
+
+    // First settle succeeds.
+    invoice_settle(node2_addr, payment_hash_hex.clone(), preimage_hex.clone()).await;
+    let _ = wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Succeeded).await;
+
+    // Second settle with wrong preimage must fail and not alter status.
+    let (wrong_preimage_hex, _) = random_preimage_and_hash();
+    invoice_settle_expect_error(
+        node2_addr,
+        payment_hash_hex.clone(),
+        wrong_preimage_hex,
+        StatusCode::BAD_REQUEST,
+        "Invalid payment preimage",
+        "InvalidPaymentPreimage",
+    )
+    .await;
+    assert!(matches!(
+        invoice_status(node2_addr, &invoice).await,
+        InvoiceStatus::Succeeded
+    ));
+}
+
+/// Idempotent settle after invoice expiry should still succeed.
+#[serial_test::serial]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[traced_test]
+async fn settle_after_expiry_idempotent_succeeds() {
+    initialize();
+
+    let (node1_addr, node2_addr, _test_dir_node1, test_dir_node2) =
+        setup_two_nodes_with_channel("settle-after-expiry", 7).await;
+
+    let (preimage_hex, payment_hash_hex) = random_preimage_and_hash();
+    let InvoiceHodlResponse { invoice, .. } =
+        invoice_hodl(node2_addr, Some(45_000), 10, payment_hash_hex.clone()).await;
+    let decoded = decode_ln_invoice(node1_addr, &invoice).await;
+
+    let _ = send_payment_with_status(node1_addr, invoice.clone(), HTLCStatus::Pending).await;
+    expect_api_ok(
+        wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
+        "wait for claimable entry to appear",
+    );
+
+    // Settle before expiry.
+    invoice_settle(node2_addr, payment_hash_hex.clone(), preimage_hex.clone()).await;
+    let _ = wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Succeeded).await;
+
+    // Let invoice expiry elapse and call settle again: should still succeed idempotently.
+    tokio::time::sleep(std::time::Duration::from_secs(45)).await;
+    invoice_settle(node2_addr, payment_hash_hex.clone(), preimage_hex.clone()).await;
+    let _ = wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Succeeded).await;
+    assert!(matches!(
+        invoice_status(node2_addr, &invoice).await,
+        InvoiceStatus::Succeeded
+    ));
 }
 
 /// Cancel and then try to cancel again (the second call fails).
