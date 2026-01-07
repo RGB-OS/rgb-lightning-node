@@ -2720,6 +2720,11 @@ pub(crate) async fn invoice_settle(
         // This avoids failing when the claimable entry has already been cleaned up by PaymentClaimed.
         if let Some(existing) = unlocked_state.inbound_payments().get(&payment_hash) {
             if matches!(existing.status, HTLCStatus::Succeeded) {
+                // Always validate the provided preimage hashes to the invoice hash.
+                let computed_hash = PaymentHash(Sha256::hash(&preimage.0).to_byte_array());
+                if computed_hash != payment_hash {
+                    return Err(APIError::InvalidPaymentPreimage);
+                }
                 if let Some(stored_preimage) = existing.preimage {
                     if stored_preimage != preimage {
                         return Err(APIError::InvalidPaymentPreimage);
