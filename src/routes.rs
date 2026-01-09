@@ -2661,21 +2661,22 @@ pub(crate) async fn invoice_hodl(
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_err(|_| APIError::FailedInvoiceCreation("system time before UNIX_EPOCH".into()))?;
 
-        let invoice = create_invoice_from_channelmanager_and_duration_since_epoch_with_payment_hash(
-            &unlocked_state.channel_manager,
-            unlocked_state.keys_manager.clone(),
-            state.static_state.logger.clone(),
-            currency,
-            payload.amt_msat,
-            "ldk-tutorial-node".to_string(),
-            duration_since_epoch,
-            payload.expiry_sec,
-            payment_hash,
-            None,
-            contract_id,
-            payload.asset_amount,
-        )
-        .map_err(|e| APIError::FailedInvoiceCreation(e.to_string()))?;
+        let invoice =
+            create_invoice_from_channelmanager_and_duration_since_epoch_with_payment_hash(
+                &unlocked_state.channel_manager,
+                unlocked_state.keys_manager.clone(),
+                state.static_state.logger.clone(),
+                currency,
+                payload.amt_msat,
+                "ldk-tutorial-node".to_string(),
+                duration_since_epoch,
+                payload.expiry_sec,
+                payment_hash,
+                None,
+                contract_id,
+                payload.asset_amount,
+            )
+            .map_err(|e| APIError::FailedInvoiceCreation(e.to_string()))?;
 
         let created_at = get_current_timestamp();
         unlocked_state.add_inbound_payment(
@@ -2727,7 +2728,8 @@ pub(crate) async fn invoice_settle(
         let unlocked_state = guard.as_ref().unwrap();
 
         let payment_hash = validate_and_parse_payment_hash(&payload.payment_hash)?;
-        let preimage = validate_and_parse_payment_preimage(&payload.payment_preimage, &payment_hash)?;
+        let preimage =
+            validate_and_parse_payment_preimage(&payload.payment_preimage, &payment_hash)?;
 
         let metadata = unlocked_state
             .invoice_metadata()
@@ -2755,10 +2757,7 @@ pub(crate) async fn invoice_settle(
 
         // Atomically take the claimable entry so the expiry task cannot fail it between
         // validation and claim_funds.
-        let _claimable = unlocked_state.mark_claimable_settling(
-            &payment_hash,
-            metadata.expiry,
-        )?;
+        let _claimable = unlocked_state.mark_claimable_settling(&payment_hash, metadata.expiry)?;
 
         // All validations passed; now claim the funds.
         unlocked_state.channel_manager.claim_funds(preimage);
