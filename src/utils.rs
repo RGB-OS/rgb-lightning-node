@@ -1,4 +1,6 @@
 use amplify::s;
+use bitcoin::hashes::sha256::Hash as Sha256;
+use bitcoin::hashes::Hash;
 use bitcoin::io;
 use bitcoin::secp256k1::PublicKey;
 use futures::Future;
@@ -8,8 +10,6 @@ use lightning::routing::router::{
     Payee, PaymentParameters, Route, RouteHint, RouteParameters, Router as _,
     DEFAULT_MAX_TOTAL_CLTV_EXPIRY_DELTA, MAX_PATH_LENGTH_ESTIMATE,
 };
-use bitcoin::hashes::sha256::Hash as Sha256;
-use bitcoin::hashes::Hash;
 use lightning::{
     ln::{PaymentHash, PaymentPreimage},
     onion_message::packet::OnionMessageContents,
@@ -485,8 +485,8 @@ pub(crate) fn validate_and_parse_payment_preimage(
     payment_preimage_str: &str,
     payment_hash: &PaymentHash,
 ) -> Result<PaymentPreimage, APIError> {
-    let preimage_vec = hex_str_to_vec(payment_preimage_str)
-        .ok_or_else(|| APIError::InvalidPaymentPreimage)?;
+    let preimage_vec =
+        hex_str_to_vec(payment_preimage_str).ok_or_else(|| APIError::InvalidPaymentPreimage)?;
     if preimage_vec.len() != 32 {
         return Err(APIError::InvalidPaymentPreimage);
     }
