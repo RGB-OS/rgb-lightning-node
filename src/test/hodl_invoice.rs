@@ -226,7 +226,10 @@ async fn settle_hodl_invoice() {
 
     // Act: pay the invoice; HODL keeps it pending and claimable.
     let _ = send_payment_with_status(node1_addr, invoice.clone(), HTLCStatus::Pending).await;
-    assert!(matches!(invoice_status(node2_addr, &invoice).await, InvoiceStatus::Pending));
+    assert!(matches!(
+        invoice_status(node2_addr, &invoice).await,
+        InvoiceStatus::Pending
+    ));
     expect_api_ok(
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
         "wait for claimable entry to appear",
@@ -242,7 +245,10 @@ async fn settle_hodl_invoice() {
     let payee_payment =
         wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Succeeded).await;
     assert_eq!(payee_payment.status, HTLCStatus::Succeeded);
-    assert!(matches!(invoice_status(node2_addr, &invoice).await, InvoiceStatus::Succeeded));
+    assert!(matches!(
+        invoice_status(node2_addr, &invoice).await,
+        InvoiceStatus::Succeeded
+    ));
     expect_api_ok(
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, false).await,
         "wait for claimable entry to be removed",
@@ -313,7 +319,10 @@ async fn cancel_hodl_invoice() {
 
     // Act: pay the invoice; it should be pending and claimable.
     let _ = send_payment_with_status(node1_addr, invoice.clone(), HTLCStatus::Pending).await;
-    assert!(matches!(invoice_status(node2_addr, &invoice).await, InvoiceStatus::Pending));
+    assert!(matches!(
+        invoice_status(node2_addr, &invoice).await,
+        InvoiceStatus::Pending
+    ));
     expect_api_ok(
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
         "wait for claimable entry to appear",
@@ -459,7 +468,10 @@ async fn expire_hodl_invoice() {
     let payee_payment =
         wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Failed).await;
     assert_eq!(payee_payment.status, HTLCStatus::Failed);
-    assert!(matches!(invoice_status(node2_addr, &invoice).await, InvoiceStatus::Failed));
+    assert!(matches!(
+        invoice_status(node2_addr, &invoice).await,
+        InvoiceStatus::Failed
+    ));
     expect_api_ok(
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, false).await,
         "wait for claimable entry to be removed",
@@ -527,7 +539,10 @@ async fn expire_hodl_invoice_by_blocks() {
     let payee_payment =
         wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Failed).await;
     assert_eq!(payee_payment.status, HTLCStatus::Failed);
-    assert!(matches!(invoice_status(node2_addr, &invoice).await, InvoiceStatus::Failed));
+    assert!(matches!(
+        invoice_status(node2_addr, &invoice).await,
+        InvoiceStatus::Failed
+    ));
     expect_api_ok(
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, false).await,
         "wait for claimable entry to be removed",
@@ -589,7 +604,10 @@ async fn reject_wrong_preimage_settle() {
     .await;
 
     // Assert: invoice stays pending and claimable entry remains.
-    assert!(matches!(invoice_status(node2_addr, &invoice).await, InvoiceStatus::Pending));
+    assert!(matches!(
+        invoice_status(node2_addr, &invoice).await,
+        InvoiceStatus::Pending
+    ));
     expect_api_ok(
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
         "wait for claimable entry to remain",
@@ -597,9 +615,11 @@ async fn reject_wrong_preimage_settle() {
 
     // Now settle with the correct preimage; should succeed and clean up.
     invoice_settle(node2_addr, payment_hash_hex.clone(), good_preimage_hex).await;
-    let _ =
-        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Succeeded).await;
-    assert!(matches!(invoice_status(node2_addr, &invoice).await, InvoiceStatus::Succeeded));
+    let _ = wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Succeeded).await;
+    assert!(matches!(
+        invoice_status(node2_addr, &invoice).await,
+        InvoiceStatus::Succeeded
+    ));
 }
 
 #[serial_test::serial]
@@ -629,7 +649,10 @@ async fn reject_duplicate_hodl_payment_hash() {
     .await;
 
     // Assert: the original invoice remains pending.
-    assert!(matches!(invoice_status(node1_addr, &invoice).await, InvoiceStatus::Pending));
+    assert!(matches!(
+        invoice_status(node1_addr, &invoice).await,
+        InvoiceStatus::Pending
+    ));
 }
 
 #[serial_test::serial]
@@ -654,5 +677,8 @@ async fn auto_claim_invoice_regression() {
     let payee_payment =
         wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Succeeded).await;
     assert_eq!(payee_payment.status, HTLCStatus::Succeeded);
-    assert!(matches!(invoice_status(node2_addr, &invoice).await, InvoiceStatus::Succeeded));
+    assert!(matches!(
+        invoice_status(node2_addr, &invoice).await,
+        InvoiceStatus::Succeeded
+    ));
 }

@@ -571,7 +571,11 @@ async fn invoice_hodl(
         .send()
         .await
         .unwrap();
-    _check_response_is_ok(res).await.json::<InvoiceHodlResponse>().await.unwrap()
+    _check_response_is_ok(res)
+        .await
+        .json::<InvoiceHodlResponse>()
+        .await
+        .unwrap()
 }
 
 async fn invoice_settle(node_address: SocketAddr, payment_hash: String, payment_preimage: String) {

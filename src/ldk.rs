@@ -254,7 +254,11 @@ impl_writeable_tlv_based!(ChannelIdsMap, {
 
 impl UnlockedAppState {
     /// Remove and return claimables that are expired or past deadline.
-    pub(crate) fn expire_claimables(&self, now_ts: u64, current_height: u32) -> Vec<ClaimablePayment> {
+    pub(crate) fn expire_claimables(
+        &self,
+        now_ts: u64,
+        current_height: u32,
+    ) -> Vec<ClaimablePayment> {
         let mut claimables = self.get_claimable_htlcs();
         let mut expired = vec![];
         let to_remove: Vec<PaymentHash> = claimables
@@ -277,10 +281,7 @@ impl UnlockedAppState {
                     .claim_deadline_height
                     .map(|h| current_height >= h)
                     .unwrap_or(false);
-                let invoice_expired = c
-                    .invoice_expiry
-                    .map(|e| now_ts >= e)
-                    .unwrap_or(false);
+                let invoice_expired = c.invoice_expiry.map(|e| now_ts >= e).unwrap_or(false);
                 if deadline_passed || invoice_expired {
                     Some(*hash)
                 } else {
@@ -374,7 +375,11 @@ impl UnlockedAppState {
         self.save_inbound_payments(inbound);
     }
 
-    pub(crate) fn add_invoice_metadata(&self, payment_hash: PaymentHash, metadata: InvoiceMetadata) {
+    pub(crate) fn add_invoice_metadata(
+        &self,
+        payment_hash: PaymentHash,
+        metadata: InvoiceMetadata,
+    ) {
         let mut invoices = self.get_invoice_metadata();
         invoices.invoices.insert(payment_hash, metadata);
         self.save_invoice_metadata(invoices);
@@ -416,10 +421,7 @@ impl UnlockedAppState {
             return Err(APIError::InvoiceNotClaimable);
         };
 
-        let current_height = self
-            .channel_manager
-            .current_best_block()
-            .height;
+        let current_height = self.channel_manager.current_best_block().height;
         let now_ts = get_current_timestamp();
 
         if let Some(deadline_height) = claimable.claim_deadline_height {
@@ -444,7 +446,10 @@ impl UnlockedAppState {
     }
 
     pub(crate) fn claimable_payment(&self, payment_hash: &PaymentHash) -> Option<ClaimablePayment> {
-        self.get_claimable_htlcs().payments.get(payment_hash).cloned()
+        self.get_claimable_htlcs()
+            .payments
+            .get(payment_hash)
+            .cloned()
     }
 
     pub(crate) fn add_outbound_payment(
@@ -926,7 +931,7 @@ async fn handle_ldk_events(
                 // Check if this payment_hash exists in inbound_payments (legacy invoice)
                 let inbound_payments = unlocked_state.inbound_payments();
                 let legacy_invoice = inbound_payments.get(&payment_hash);
-                
+
                 if let Some(legacy_payment_info) = legacy_invoice {
                     // This is a legacy invoice (created before invoice_metadata feature)
                     // Treat it as auto-claim invoice with basic validation
@@ -934,7 +939,7 @@ async fn handle_ldk_events(
                         "Legacy invoice detected (no metadata) for payment {:?}, treating as auto-claim",
                         payment_hash
                     );
-                    
+
                     // For legacy invoices, LDK should provide the preimage for standard Bolt11 invoices
                     let Some(preimage) = payment_preimage else {
                         // If preimage is missing, check if it was stored in inbound_payment
@@ -947,7 +952,7 @@ async fn handle_ldk_events(
                             unlocked_state.channel_manager.claim_funds(stored_preimage);
                             return Ok(());
                         }
-                        
+
                         tracing::error!(
                             "Missing payment preimage for legacy invoice {:?}, cannot claim. \
                             This may indicate a corrupted state or LDK version issue.",
@@ -958,7 +963,7 @@ async fn handle_ldk_events(
                             .fail_htlc_backwards(&payment_hash);
                         return Ok(());
                     };
-                    
+
                     // Basic validation: check amount if specified in legacy invoice
                     if let Some(expected_amt) = legacy_payment_info.amt_msat {
                         if amount_msat < expected_amt {
@@ -982,13 +987,13 @@ async fn handle_ldk_events(
                             return Ok(());
                         }
                     }
-                    
+
                     // Auto-claim legacy invoice
                     tracing::info!("Auto-claiming legacy invoice {:?}", payment_hash);
                     unlocked_state.channel_manager.claim_funds(preimage);
                     return Ok(());
                 }
-                
+
                 // No metadata and not in inbound_payments - likely spontaneous/keysend payment
                 let Some(preimage) = payment_preimage else {
                     tracing::error!(
@@ -1066,7 +1071,7 @@ async fn handle_ldk_events(
                 }
                 InvoiceMode::Hodl => {
                     let claim_deadline_height = claim_deadline.map(|h| h);
-        
+
                     let claimable = ClaimablePayment {
                         payment_hash,
                         amount_msat,
@@ -2528,20 +2533,20 @@ pub(crate) async fn start_ldk(
                 // at the same time, but the mutex in get_claimable_htlcs() protects against this.
                 // If user already took it via take_claimable_payment(), expire_claimables() won't
                 // return it, so this is safe.
-                
+
                 tracing::info!(
                     "Expiring claimable payment {:?} (deadline: {:?}, expiry: {:?})",
                     claimable.payment_hash,
                     claimable.claim_deadline_height,
                     claimable.invoice_expiry
                 );
-                
+
                 // Fail the HTLC backwards - this may be a no-op if already claimed/failed,
                 // but LDK should handle that gracefully
                 unlocked_state_claimable
                     .channel_manager
                     .fail_htlc_backwards(&claimable.payment_hash);
-                
+
                 // Update payment status to Failed
                 unlocked_state_claimable.upsert_inbound_payment(
                     claimable.payment_hash,

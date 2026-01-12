@@ -2703,7 +2703,8 @@ pub(crate) async fn invoice_settle(
         let unlocked_state = guard.as_ref().unwrap();
 
         let payment_hash = validate_and_parse_payment_hash(&payload.payment_hash)?;
-        let preimage = validate_and_parse_payment_preimage(&payload.payment_preimage, &payment_hash)?;
+        let preimage =
+            validate_and_parse_payment_preimage(&payload.payment_preimage, &payment_hash)?;
 
         let metadata = unlocked_state
             .invoice_metadata()
@@ -2731,10 +2732,7 @@ pub(crate) async fn invoice_settle(
 
         // Atomically take the claimable entry so the expiry task cannot fail it between
         // validation and claim_funds.
-        let _claimable = unlocked_state.mark_claimable_settling(
-            &payment_hash,
-            metadata.expiry,
-        )?;
+        let _claimable = unlocked_state.mark_claimable_settling(&payment_hash, metadata.expiry)?;
 
         // All validations passed; now claim the funds.
         unlocked_state.channel_manager.claim_funds(preimage);
