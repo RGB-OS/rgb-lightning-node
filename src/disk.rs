@@ -187,7 +187,7 @@ pub(crate) fn read_invoice_metadata(path: &Path) -> InvoiceMetadataStorage {
         }
     }
     InvoiceMetadataStorage {
-        invoices: HashMap::new(),
+        invoices: new_hash_map(),
     }
 }
 
@@ -198,7 +198,7 @@ pub(crate) fn read_claimable_htlcs(path: &Path) -> ClaimablePaymentStorage {
         }
     }
     ClaimablePaymentStorage {
-        payments: HashMap::new(),
+        payments: new_hash_map(),
     }
 }
 

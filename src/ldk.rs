@@ -213,7 +213,7 @@ impl_writeable_tlv_based!(InboundPaymentInfoStorage, {
 });
 
 pub(crate) struct InvoiceMetadataStorage {
-    pub(crate) invoices: HashMap<PaymentHash, InvoiceMetadata>,
+    pub(crate) invoices: LdkHashMap<PaymentHash, InvoiceMetadata>,
 }
 
 impl_writeable_tlv_based!(InvoiceMetadataStorage, {
@@ -229,7 +229,7 @@ impl_writeable_tlv_based!(OutboundPaymentInfoStorage, {
 });
 
 pub(crate) struct ClaimablePaymentStorage {
-    pub(crate) payments: HashMap<PaymentHash, ClaimablePayment>,
+    pub(crate) payments: LdkHashMap<PaymentHash, ClaimablePayment>,
 }
 
 impl_writeable_tlv_based!(ClaimablePaymentStorage, {
@@ -380,7 +380,7 @@ impl UnlockedAppState {
         self.save_invoice_metadata(invoices);
     }
 
-    pub(crate) fn invoice_metadata(&self) -> HashMap<PaymentHash, InvoiceMetadata> {
+    pub(crate) fn invoice_metadata(&self) -> LdkHashMap<PaymentHash, InvoiceMetadata> {
         self.get_invoice_metadata().invoices.clone()
     }
 
@@ -500,7 +500,7 @@ impl UnlockedAppState {
 
     fn save_invoice_metadata(&self, invoices: MutexGuard<InvoiceMetadataStorage>) {
         self.fs_store
-            .write("", "", INVOICE_METADATA_FNAME, &invoices.encode())
+            .write("", "", INVOICE_METADATA_FNAME, invoices.encode())
             .unwrap();
     }
 
@@ -512,7 +512,7 @@ impl UnlockedAppState {
 
     fn save_claimable_htlcs(&self, claimables: MutexGuard<ClaimablePaymentStorage>) {
         self.fs_store
-            .write("", "", CLAIMABLE_HTLCS_FNAME, &claimables.encode())
+            .write("", "", CLAIMABLE_HTLCS_FNAME, claimables.encode())
             .unwrap();
     }
 
@@ -884,8 +884,6 @@ async fn handle_ldk_events(
             purpose,
             amount_msat,
             receiver_node_id: _,
-            via_channel_id: _,
-            via_user_channel_id: _,
             claim_deadline,
             onion_fields: _,
             counterparty_skimmed_fee_msat: _,

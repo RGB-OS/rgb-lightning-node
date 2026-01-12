@@ -11,9 +11,9 @@ use lightning::routing::router::{
 use bitcoin::hashes::sha256::Hash as Sha256;
 use bitcoin::hashes::Hash;
 use lightning::{
-    ln::{PaymentHash, PaymentPreimage},
     onion_message::packet::OnionMessageContents,
     sign::KeysManager,
+    types::payment::{PaymentHash, PaymentPreimage},
     util::ser::{Writeable, Writer},
 };
 use lightning_persister::fs_store::FilesystemStore;

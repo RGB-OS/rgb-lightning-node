@@ -10,13 +10,6 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::{Network, ScriptBuf};
 use hex::DisplayHex;
-use lightning::ln::bolt11_payment::{
-    payment_parameters_from_invoice, payment_parameters_from_zero_amount_invoice,
-};
-use lightning::ln::invoice_utils::{
-    create_invoice_from_channelmanager,
-    create_invoice_from_channelmanager_and_duration_since_epoch_with_payment_hash,
-};
 use lightning::ln::{channelmanager::OptionalOfferPaymentParams, types::ChannelId};
 use lightning::offers::offer::{self, Offer};
 use lightning::onion_message::messenger::Destination;
@@ -73,7 +66,7 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 use tokio::{
     fs::File,
@@ -2632,13 +2625,6 @@ pub(crate) async fn invoice_hodl(
             )));
         }
 
-        let currency = match state.static_state.network {
-            RgbLibNetwork::Mainnet => Currency::Bitcoin,
-            RgbLibNetwork::Testnet | RgbLibNetwork::Testnet4 => Currency::BitcoinTestnet,
-            RgbLibNetwork::Regtest => Currency::Regtest,
-            RgbLibNetwork::Signet => Currency::Signet,
-        };
-
         let payment_hash = validate_and_parse_payment_hash(&payload.payment_hash)?;
 
         // Reject reusing a payment hash that already exists in any of the known stores.
@@ -2653,25 +2639,19 @@ pub(crate) async fn invoice_hodl(
             return Err(APIError::PaymentHashAlreadyUsed);
         }
 
-        let duration_since_epoch = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map_err(|_| APIError::FailedInvoiceCreation("system time before UNIX_EPOCH".into()))?;
-
-        let invoice = create_invoice_from_channelmanager_and_duration_since_epoch_with_payment_hash(
-            &unlocked_state.channel_manager,
-            unlocked_state.keys_manager.clone(),
-            state.static_state.logger.clone(),
-            currency,
-            payload.amt_msat,
-            "ldk-tutorial-node".to_string(),
-            duration_since_epoch,
-            payload.expiry_sec,
-            payment_hash,
-            None,
+        let invoice_params = Bolt11InvoiceParameters {
+            amount_msats: payload.amt_msat,
+            invoice_expiry_delta_secs: Some(payload.expiry_sec),
+            payment_hash: Some(payment_hash),
             contract_id,
-            payload.asset_amount,
-        )
-        .map_err(|e| APIError::FailedInvoiceCreation(e.to_string()))?;
+            asset_amount: payload.asset_amount,
+            ..Default::default()
+        };
+
+        let invoice = unlocked_state
+            .channel_manager
+            .create_bolt11_invoice(invoice_params)
+            .map_err(|e| APIError::FailedInvoiceCreation(e.to_string()))?;
 
         let created_at = get_current_timestamp();
         unlocked_state.add_inbound_payment(
