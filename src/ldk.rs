@@ -375,6 +375,21 @@ impl UnlockedAppState {
         self.save_inbound_payments(inbound);
     }
 
+    pub(crate) fn add_hodl_invoice_records(
+        &self,
+        payment_hash: PaymentHash,
+        payment_info: PaymentInfo,
+        metadata: InvoiceMetadata,
+    ) {
+        let mut invoices = self.get_invoice_metadata();
+        let mut inbound = self.get_inbound_payments();
+        invoices.invoices.insert(payment_hash, metadata);
+        inbound.payments.insert(payment_hash, payment_info);
+        // Persist metadata first so a crash cannot downgrade HODL to auto-claim.
+        self.save_invoice_metadata(invoices);
+        self.save_inbound_payments(inbound);
+    }
+
     pub(crate) fn add_invoice_metadata(
         &self,
         payment_hash: PaymentHash,

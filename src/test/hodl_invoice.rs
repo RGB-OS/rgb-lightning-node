@@ -187,6 +187,20 @@ fn claimable_deadline_height(
         .and_then(|c| c.claim_deadline_height))
 }
 
+/// Check if the claimable entry is marked as settling in storage.
+fn claimable_is_settling(node_test_dir: &str, payment_hash_hex: &str) -> Result<bool, APIError> {
+    let claimable_path = Path::new(node_test_dir)
+        .join(LDK_DIR)
+        .join(CLAIMABLE_HTLCS_FNAME);
+    let storage = read_claimable_htlcs(&claimable_path);
+    let hash = validate_and_parse_payment_hash(payment_hash_hex)?;
+    Ok(storage
+        .payments
+        .get(&hash)
+        .and_then(|c| c.settling)
+        .unwrap_or(false))
+}
+
 /// Poll until the claimable entry appears or disappears (bounded by timeout).
 async fn wait_for_claimable_state(
     node_test_dir: &str,
@@ -201,6 +215,25 @@ async fn wait_for_claimable_state(
         if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 20.0 {
             return Err(APIError::Unexpected(format!(
                 "claimable entry for {payment_hash_hex} did not reach state {expected}"
+            )));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+}
+
+/// Poll until the claimable entry is marked as settling (bounded by timeout).
+async fn wait_for_claimable_settling(
+    node_test_dir: &str,
+    payment_hash_hex: &str,
+) -> Result<(), APIError> {
+    let t_0 = OffsetDateTime::now_utc();
+    loop {
+        if claimable_is_settling(node_test_dir, payment_hash_hex)? {
+            return Ok(());
+        }
+        if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 10.0 {
+            return Err(APIError::Unexpected(format!(
+                "claimable entry for {payment_hash_hex} was not marked settling in time"
             )));
         }
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -508,6 +541,47 @@ async fn settle_then_cancel_fails() {
         "InvoiceNotClaimable",
     )
     .await;
+}
+
+/// Cancel should be rejected while a settle is in progress.
+#[serial_test::serial]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[traced_test]
+async fn cancel_while_settling_fails() {
+    initialize();
+
+    let (node1_addr, node2_addr, _test_dir_node1, test_dir_node2) =
+        setup_two_nodes_with_channel("cancel-while-settling", 13).await;
+
+    let (preimage_hex, payment_hash_hex) = random_preimage_and_hash();
+    let InvoiceHodlResponse { invoice, .. } =
+        invoice_hodl(node2_addr, Some(42_000), 900, payment_hash_hex.clone()).await;
+    let decoded = decode_ln_invoice(node1_addr, &invoice).await;
+
+    let _ = send_payment_with_status(node1_addr, invoice.clone(), HTLCStatus::Pending).await;
+    expect_api_ok(
+        wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
+        "claimable entry should appear",
+    );
+
+    invoice_settle(node2_addr, payment_hash_hex.clone(), preimage_hex).await;
+    expect_api_ok(
+        wait_for_claimable_settling(&test_dir_node2, &payment_hash_hex).await,
+        "claimable entry should be marked settling",
+    );
+
+    invoice_cancel_expect_error(
+        node2_addr,
+        payment_hash_hex.clone(),
+        StatusCode::FORBIDDEN,
+        "Invoice settlement is in progress",
+        "InvoiceSettlingInProgress",
+    )
+    .await;
+
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Succeeded).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Succeeded);
 }
 
 /// Expiry via short invoice timeout: ensure settle/cancel fail after expiry.

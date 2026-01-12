@@ -2654,32 +2654,28 @@ pub(crate) async fn invoice_hodl(
             .map_err(|e| APIError::FailedInvoiceCreation(e.to_string()))?;
 
         let created_at = get_current_timestamp();
-        unlocked_state.add_inbound_payment(
-            payment_hash,
-            PaymentInfo {
-                preimage: None,
-                secret: Some(*invoice.payment_secret()),
-                status: HTLCStatus::Pending,
-                amt_msat: payload.amt_msat,
-                created_at,
-                updated_at: created_at,
-                payee_pubkey: unlocked_state.channel_manager.get_our_node_id(),
-            },
-        );
+        let payment_info = PaymentInfo {
+            preimage: None,
+            secret: Some(*invoice.payment_secret()),
+            status: HTLCStatus::Pending,
+            amt_msat: payload.amt_msat,
+            created_at,
+            updated_at: created_at,
+            payee_pubkey: unlocked_state.channel_manager.get_our_node_id(),
+        };
 
         let expiry_ts = invoice
             .duration_since_epoch()
             .as_secs()
             .saturating_add(invoice.expiry_time().as_secs());
-        unlocked_state.add_invoice_metadata(
-            payment_hash,
-            InvoiceMetadata {
-                mode: InvoiceMode::Hodl,
-                expected_amt_msat: payload.amt_msat.or_else(|| invoice.amount_milli_satoshis()),
-                expiry: Some(expiry_ts),
-                external_ref: payload.external_ref.clone(),
-            },
-        );
+        let metadata = InvoiceMetadata {
+            mode: InvoiceMode::Hodl,
+            expected_amt_msat: payload.amt_msat.or_else(|| invoice.amount_milli_satoshis()),
+            expiry: Some(expiry_ts),
+            external_ref: payload.external_ref.clone(),
+        };
+
+        unlocked_state.add_hodl_invoice_records(payment_hash, payment_info, metadata);
 
         Ok(Json(InvoiceHodlResponse {
             invoice: invoice.to_string(),
@@ -2770,6 +2766,9 @@ pub(crate) async fn invoice_cancel(
         let claimable = unlocked_state
             .claimable_payment(&payment_hash)
             .ok_or(APIError::InvoiceNotClaimable)?;
+        if claimable.settling.unwrap_or(false) {
+            return Err(APIError::InvoiceSettlingInProgress);
+        }
 
         // Best-effort cancel: LDK doesn't report sync success here, so just clear the
         // claimable entry and let later events update status if it was already claimed.
