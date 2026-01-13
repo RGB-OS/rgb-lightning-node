@@ -228,6 +228,9 @@ pub enum APIError {
     #[error("Invoice settlement is in progress")]
     InvoiceSettlingInProgress,
 
+    #[error("Invoice is already settled")]
+    InvoiceAlreadySettled,
+
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),
 
@@ -524,8 +527,13 @@ impl IntoResponse for APIError {
             | APIError::UnsupportedTransportType => {
                 (StatusCode::FORBIDDEN, self.to_string(), self.name())
             }
+            APIError::InvoiceNotClaimable => {
+                (StatusCode::NOT_FOUND, self.to_string(), self.name())
+            }
+            APIError::InvoiceAlreadySettled => {
+                (StatusCode::CONFLICT, self.to_string(), self.name())
+            }
             APIError::InvoiceNotHodl
-            | APIError::InvoiceNotClaimable
             | APIError::InvoiceSettlingInProgress => {
                 (StatusCode::FORBIDDEN, self.to_string(), self.name())
             }

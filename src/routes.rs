@@ -2687,9 +2687,13 @@ pub(crate) async fn invoice_hodl(
 
 /// Settle a HODL invoice that currently has a held HTLC. Requires the invoice
 /// `payment_hash` and the matching 32-byte `payment_preimage`. Fails if the
-/// invoice is not HODL, there is no claimable HTLC (already cancelled, expired
-/// or failed), the HTLC has timed out, or the preimage doesn't match.
-/// If the invoice is already settled, this call succeeds (idempotent).
+/// invoice is not HODL, there is no claimable HTLC (already cancelled, expired,
+/// or failed), or the preimage doesn't match. If the invoice is already settled,
+/// this call succeeds (idempotent).
+///
+/// Note: if the sender fails the HTLC and we
+/// don't receive an inbound failure signal, the claimable entry may still exist;
+/// in that case `claim_funds` is a no-op and this endpoint still returns 200.
 pub(crate) async fn invoice_settle(
     State(state): State<Arc<AppState>>,
     WithRejection(Json(payload), _): WithRejection<Json<InvoiceSettleRequest>, APIError>,
@@ -2729,6 +2733,9 @@ pub(crate) async fn invoice_settle(
                 // Already settled with matching preimage; idempotent success.
                 return Ok(Json(EmptyResponse {}));
             }
+            if matches!(existing.status, HTLCStatus::Failed | HTLCStatus::Cancelled) {
+                return Err(APIError::InvoiceNotClaimable);
+            }
         }
 
         // Atomically take the claimable entry so the expiry task cannot fail it between
@@ -2743,6 +2750,15 @@ pub(crate) async fn invoice_settle(
     .await
 }
 
+/// Cancel a HODL invoice by attempting to fail the inbound HTLC.
+///
+/// Behavior:
+/// - Requires an existing HODL invoice; otherwise `UnknownLNInvoice`/`InvoiceNotHodl`.
+/// - If already settled, returns `InvoiceAlreadySettled` (409).
+/// - Requires a claimable HTLC entry; otherwise `InvoiceNotClaimable` (already resolved or swept).
+/// - If settling is in-flight, returns `InvoiceSettlingInProgress`.
+/// - Best-effort: calls LDK to fail the HTLC and removes the claimable entry locally; resolution
+///   is asynchronous and later LDK events may overwrite local status.
 pub(crate) async fn invoice_cancel(
     State(state): State<Arc<AppState>>,
     WithRejection(Json(payload), _): WithRejection<Json<InvoiceCancelRequest>, APIError>,
@@ -2763,9 +2779,17 @@ pub(crate) async fn invoice_cancel(
             return Err(APIError::InvoiceNotHodl);
         }
 
-        let claimable = unlocked_state
-            .claimable_payment(&payment_hash)
-            .ok_or(APIError::InvoiceNotClaimable)?;
+        let claimable = match unlocked_state.claimable_payment(&payment_hash) {
+            Some(claimable) => claimable,
+            None => {
+                if let Some(existing) = unlocked_state.inbound_payments().get(&payment_hash) {
+                    if matches!(existing.status, HTLCStatus::Succeeded) {
+                        return Err(APIError::InvoiceAlreadySettled);
+                    }
+                }
+                return Err(APIError::InvoiceNotClaimable);
+            }
+        };
         if claimable.settling.unwrap_or(false) {
             return Err(APIError::InvoiceSettlingInProgress);
         }

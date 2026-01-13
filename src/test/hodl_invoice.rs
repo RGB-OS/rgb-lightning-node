@@ -462,14 +462,14 @@ async fn cancel_hodl_invoice() {
     invoice_cancel_expect_error(
         node2_addr,
         payment_hash_hex,
-        StatusCode::FORBIDDEN,
+        StatusCode::NOT_FOUND,
         "No claimable HTLC found for this invoice",
         "InvoiceNotClaimable",
     )
     .await;
 }
 
-/// Cacelling first must make a later settle fail (already cancelled).
+/// Cancelling first must make a later settle fail (already cancelled).
 #[serial_test::serial]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 #[traced_test]
@@ -496,7 +496,7 @@ async fn cancel_then_settle_fails() {
         node2_addr,
         payment_hash_hex.clone(),
         preimage_hex,
-        StatusCode::FORBIDDEN,
+        StatusCode::NOT_FOUND,
         "No claimable HTLC found for this invoice",
         "InvoiceNotClaimable",
     )
@@ -536,9 +536,9 @@ async fn settle_then_cancel_fails() {
     invoice_cancel_expect_error(
         node2_addr,
         payment_hash_hex.clone(),
-        StatusCode::FORBIDDEN,
-        "No claimable HTLC found for this invoice",
-        "InvoiceNotClaimable",
+        StatusCode::CONFLICT,
+        "Invoice is already settled",
+        "InvoiceAlreadySettled",
     )
     .await;
 }
@@ -634,7 +634,7 @@ async fn expire_hodl_invoice() {
         node2_addr,
         payment_hash_hex.clone(),
         _preimage_hex,
-        StatusCode::FORBIDDEN,
+        StatusCode::NOT_FOUND,
         "No claimable HTLC found for this invoice",
         "InvoiceNotClaimable",
     )
@@ -642,7 +642,7 @@ async fn expire_hodl_invoice() {
     invoice_cancel_expect_error(
         node2_addr,
         payment_hash_hex,
-        StatusCode::FORBIDDEN,
+        StatusCode::NOT_FOUND,
         "No claimable HTLC found for this invoice",
         "InvoiceNotClaimable",
     )
@@ -705,7 +705,7 @@ async fn expire_hodl_invoice_by_blocks() {
         node2_addr,
         payment_hash_hex.clone(),
         _preimage_hex,
-        StatusCode::FORBIDDEN,
+        StatusCode::NOT_FOUND,
         "No claimable HTLC found for this invoice",
         "InvoiceNotClaimable",
     )
@@ -713,7 +713,7 @@ async fn expire_hodl_invoice_by_blocks() {
     invoice_cancel_expect_error(
         node2_addr,
         payment_hash_hex,
-        StatusCode::FORBIDDEN,
+        StatusCode::NOT_FOUND,
         "No claimable HTLC found for this invoice",
         "InvoiceNotClaimable",
     )

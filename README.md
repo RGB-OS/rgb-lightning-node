@@ -285,6 +285,7 @@ HODL invoices are invoices whose incoming HTLCs are not auto-claimed when receiv
 **Behavior reminders:**
 - Settlement is idempotent for the correct preimage; a wrong preimage returns `InvalidPaymentPreimage`.
 - Cancellation during an in-progress settlement is rejected (`InvoiceSettlingInProgress`) to prevent race conditions during state transitions.
+- Cancellation after settlement returns `InvoiceAlreadySettled` (409).
 - Invoice metadata is persisted before inbound payment records, so a restart cannot downgrade a HODL invoice into auto-claim behavior.
 
 See OpenAPI entries for details: [`/invoice/hodl`](openapi.yaml#L652), [`/invoice/settle`](openapi.yaml#L670), and [`/invoice/cancel`](openapi.yaml#L688).
