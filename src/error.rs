@@ -527,14 +527,11 @@ impl IntoResponse for APIError {
             | APIError::UnsupportedTransportType => {
                 (StatusCode::FORBIDDEN, self.to_string(), self.name())
             }
-            APIError::InvoiceNotClaimable => {
-                (StatusCode::NOT_FOUND, self.to_string(), self.name())
-            }
+            APIError::InvoiceNotClaimable => (StatusCode::NOT_FOUND, self.to_string(), self.name()),
             APIError::InvoiceAlreadySettled => {
                 (StatusCode::CONFLICT, self.to_string(), self.name())
             }
-            APIError::InvoiceNotHodl
-            | APIError::InvoiceSettlingInProgress => {
+            APIError::InvoiceNotHodl | APIError::InvoiceSettlingInProgress => {
                 (StatusCode::FORBIDDEN, self.to_string(), self.name())
             }
             APIError::Network(_) | APIError::NoValidTransportEndpoint => (
