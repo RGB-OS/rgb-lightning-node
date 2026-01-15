@@ -559,6 +559,17 @@ pub(crate) struct GetPaymentResponse {
 }
 
 #[derive(Deserialize, Serialize)]
+pub(crate) struct GetPaymentPreimageRequest {
+    pub(crate) payment_hash: String,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct GetPaymentPreimageResponse {
+    pub(crate) status: HTLCStatus,
+    pub(crate) preimage: Option<String>,
+}
+
+#[derive(Deserialize, Serialize)]
 pub(crate) struct GetSwapRequest {
     pub(crate) payment_hash: String,
     pub(crate) taker: bool,
@@ -2291,6 +2302,38 @@ pub(crate) async fn get_payment(
                     payee_pubkey: payment_info.payee_pubkey.to_string(),
                 },
             }));
+        }
+    }
+
+    Err(APIError::PaymentNotFound(payload.payment_hash))
+}
+
+/// Returns outbound payment status and preimage (when available) for polling.
+/// Used by HODL invoice workflows to claim the on-chain HTLC once the payment settles.
+pub(crate) async fn get_payment_preimage(
+    State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<GetPaymentPreimageRequest>, APIError>,
+) -> Result<Json<GetPaymentPreimageResponse>, APIError> {
+    let guard = state.check_unlocked().await?;
+    let unlocked_state = guard.as_ref().unwrap();
+
+    let payment_hash_vec = hex_str_to_vec(&payload.payment_hash);
+    if payment_hash_vec.is_none() || payment_hash_vec.as_ref().unwrap().len() != 32 {
+        return Err(APIError::InvalidPaymentHash(payload.payment_hash));
+    }
+    let requested_ph = PaymentHash(payment_hash_vec.unwrap().try_into().unwrap());
+
+    let outbound_payments = unlocked_state.outbound_payments();
+    for (payment_id, payment_info) in &outbound_payments {
+        let payment_hash = &PaymentHash(payment_id.0);
+        if payment_hash == &requested_ph {
+            let status = payment_info.status;
+            let preimage = if matches!(status, HTLCStatus::Succeeded) {
+                payment_info.preimage.map(|p| hex_str(&p.0))
+            } else {
+                None
+            };
+            return Ok(Json(GetPaymentPreimageResponse { status, preimage }));
         }
     }
 

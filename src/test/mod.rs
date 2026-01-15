@@ -26,20 +26,20 @@ use crate::routes::{
     DecodeLNInvoiceResponse, DecodeRGBInvoiceRequest, DecodeRGBInvoiceResponse,
     DisconnectPeerRequest, EmptyResponse, FailTransfersRequest, FailTransfersResponse,
     GetAssetMediaRequest, GetAssetMediaResponse, GetChannelIdRequest, GetChannelIdResponse,
-    GetPaymentRequest, GetPaymentResponse, GetSwapRequest, GetSwapResponse, HTLCStatus,
-    InitRequest, InitResponse, InvoiceCancelRequest, InvoiceHodlRequest, InvoiceHodlResponse,
-    InvoiceSettleRequest, InvoiceStatus, InvoiceStatusRequest, InvoiceStatusResponse,
-    IssueAssetCFARequest, IssueAssetCFAResponse, IssueAssetNIARequest, IssueAssetNIAResponse,
-    IssueAssetUDARequest, IssueAssetUDAResponse, KeysendRequest, KeysendResponse, LNInvoiceRequest,
-    LNInvoiceResponse, ListAssetsRequest, ListAssetsResponse, ListChannelsResponse,
-    ListPaymentsResponse, ListPeersResponse, ListSwapsResponse, ListTransactionsRequest,
-    ListTransactionsResponse, ListTransfersRequest, ListTransfersResponse, ListUnspentsRequest,
-    ListUnspentsResponse, MakerExecuteRequest, MakerInitRequest, MakerInitResponse,
-    NetworkInfoResponse, NodeInfoResponse, OpenChannelRequest, OpenChannelResponse, Payment, Peer,
-    PostAssetMediaResponse, RefreshRequest, RestoreRequest, RevokeTokenRequest, RgbInvoiceRequest,
-    RgbInvoiceResponse, SendAssetRequest, SendAssetResponse, SendBtcRequest, SendBtcResponse,
-    SendPaymentRequest, SendPaymentResponse, Swap, SwapStatus, TakerRequest, Transaction, Transfer,
-    UnlockRequest, Unspent, WitnessData,
+    GetPaymentPreimageRequest, GetPaymentPreimageResponse, GetPaymentRequest, GetPaymentResponse,
+    GetSwapRequest, GetSwapResponse, HTLCStatus, InitRequest, InitResponse, InvoiceCancelRequest,
+    InvoiceHodlRequest, InvoiceHodlResponse, InvoiceSettleRequest, InvoiceStatus,
+    InvoiceStatusRequest, InvoiceStatusResponse, IssueAssetCFARequest, IssueAssetCFAResponse,
+    IssueAssetNIARequest, IssueAssetNIAResponse, IssueAssetUDARequest, IssueAssetUDAResponse,
+    KeysendRequest, KeysendResponse, LNInvoiceRequest, LNInvoiceResponse, ListAssetsRequest,
+    ListAssetsResponse, ListChannelsResponse, ListPaymentsResponse, ListPeersResponse,
+    ListSwapsResponse, ListTransactionsRequest, ListTransactionsResponse, ListTransfersRequest,
+    ListTransfersResponse, ListUnspentsRequest, ListUnspentsResponse, MakerExecuteRequest,
+    MakerInitRequest, MakerInitResponse, NetworkInfoResponse, NodeInfoResponse, OpenChannelRequest,
+    OpenChannelResponse, Payment, Peer, PostAssetMediaResponse, RefreshRequest, RestoreRequest,
+    RevokeTokenRequest, RgbInvoiceRequest, RgbInvoiceResponse, SendAssetRequest, SendAssetResponse,
+    SendBtcRequest, SendBtcResponse, SendPaymentRequest, SendPaymentResponse, Swap, SwapStatus,
+    TakerRequest, Transaction, Transfer, UnlockRequest, Unspent, WitnessData,
 };
 use crate::utils::{hex_str_to_vec, ELECTRUM_URL_REGTEST, PROXY_ENDPOINT_LOCAL};
 
@@ -851,6 +851,27 @@ async fn get_payment(node_address: SocketAddr, payment_hash: &str) -> Payment {
         .await
         .unwrap()
         .payment
+}
+
+async fn get_payment_preimage(
+    node_address: SocketAddr,
+    payment_hash: &str,
+) -> GetPaymentPreimageResponse {
+    println!("getting payment preimage for node {node_address}");
+    let payload = GetPaymentPreimageRequest {
+        payment_hash: payment_hash.to_string(),
+    };
+    let res = reqwest::Client::new()
+        .post(format!("http://{node_address}/getpaymentpreimage"))
+        .json(&payload)
+        .send()
+        .await
+        .unwrap();
+    _check_response_is_ok(res)
+        .await
+        .json::<GetPaymentPreimageResponse>()
+        .await
+        .unwrap()
 }
 
 async fn list_peers(node_address: SocketAddr) -> Vec<Peer> {

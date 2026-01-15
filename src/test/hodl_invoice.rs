@@ -285,6 +285,25 @@ async fn wait_for_claimable_settling(
     }
 }
 
+async fn wait_for_payment_preimage(
+    node_address: SocketAddr,
+    payment_hash_hex: &str,
+) -> Result<GetPaymentPreimageResponse, APIError> {
+    let t_0 = OffsetDateTime::now_utc();
+    loop {
+        let resp = get_payment_preimage(node_address, payment_hash_hex).await;
+        if matches!(resp.status, HTLCStatus::Succeeded) && resp.preimage.is_some() {
+            return Ok(resp);
+        }
+        if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 20.0 {
+            return Err(APIError::Unexpected(format!(
+                "preimage for {payment_hash_hex} was not available in time"
+            )));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+}
+
 #[serial_test::serial]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 #[traced_test]
@@ -341,6 +360,13 @@ async fn settle_hodl_invoice() {
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, false).await,
         "wait for claimable entry to be removed",
     );
+
+    let preimage_resp = expect_api_ok(
+        wait_for_payment_preimage(node1_addr, &payment_hash_hex).await,
+        "wait for payment preimage to be available",
+    );
+    assert_eq!(preimage_resp.status, HTLCStatus::Succeeded);
+    assert_eq!(preimage_resp.preimage, Some(preimage_hex));
 }
 
 #[serial_test::serial]
