@@ -22,8 +22,8 @@ responsibility for loss of funds or any other issue you may encounter.
 
 Also note that [rust-lightning] has been changed in order to support RGB
 channels,
-[here](https://github.com/RGB-Tools/rust-lightning/compare/v0.0.125...rgb)
-a comparison with `v0.0.125`, the version we applied the changes to.
+[here](https://github.com/RGB-Tools/rust-lightning/compare/v0.2...rgb)
+a comparison with `v0.2`, the version we applied the changes to.
 
 ## Install
 
@@ -35,7 +35,12 @@ git clone https://github.com/RGB-Tools/rgb-lightning-node --recurse-submodules -
 Then, from the project root, install the `rgb-lightning-node` binary by
 running:
 ```sh
-cargo install --locked --debug --path .
+cargo install --locked --path .
+```
+
+The docker image can be built with:
+```sh
+docker build -t rgb-lightning-node .
 ```
 
 ## Run
@@ -85,6 +90,23 @@ rgb-lightning-node dataldk2/ --daemon-listening-port 3003 \
     --disable-authentication
 ```
 
+To instead run node in docker use the following template:
+```sh
+docker run \
+    --rm -it \
+    -p 3001:3001 \
+    -v RLNdata1:/RLNdata \
+    --network rgb-lightning-node_default \
+    rgb-lightning-node \
+        --daemon-listening-port 3001 \
+        --ldk-peer-listening-port 9735 \
+        --network regtest \
+        --disable-authentication \
+        RLNdata
+```
+Note: this persists data across runs in the `RLNdata1` volume; to start from
+scratch delete it with `docker volume rm RLNdata1`
+
 To send some bitcoins to a node, first get a bitcoin address with the POST
 `/address` API, then run:
 ```sh
@@ -113,6 +135,14 @@ When unlocking regtest nodes use the following local services:
 - bitcoind_rpc_port: 18433
 - indexer_url: 127.0.0.1:50001
 - proxy_endpoint: rpc://127.0.0.1:3000/json-rpc
+
+To unlock a regtest nodes running in docker use the following local services:
+- bitcoind_rpc_username: user
+- bitcoind_rpc_password: password
+- bitcoind_rpc_host: bitcoind
+- bitcoind_rpc_port: 18433
+- indexer_url: electrs:50001
+- proxy_endpoint: rpc://proxy:3000/json-rpc
 
 ### Testnet
 
@@ -190,6 +220,9 @@ The node currently exposes the following APIs:
 - `/getswap` (POST)
 - `/init` (POST)
 - `/invoicestatus` (POST)
+- `/invoice/hodl` (POST)
+- `/invoice/settle` (POST)
+- `/invoice/cancel` (POST)
 - `/issueassetcfa` (POST)
 - `/issueassetnia` (POST)
 - `/issueassetuda` (POST)
@@ -239,6 +272,24 @@ given above, you can even call the APIs directly from the Swagger UI.
 
 To stop the daemon, exit with the `/shutdown` API (or press `Ctrl+C`).
 
+### HODL Invoices
+
+HODL invoices are invoices whose incoming HTLCs are not auto-claimed when received; they stay pending until you explicitly settle or cancel them. This enables features like submarine swaps (on-chain/L1 to off-chain/L2 through Lightning) where you want to verify external conditions before releasing the preimage.
+
+**Basic flow:**
+- Create: POST `/invoice/hodl` to issue a HODL invoice.
+- Receive: the HTLC remains pending/claimable until you act.
+- Settle: POST `/invoice/settle` with the correct preimage to complete settlement.
+- Cancel: POST `/invoice/cancel` to fail the HTLC if you choose not to settle.
+
+**Behavior reminders:**
+- Settlement is idempotent for the correct preimage; a wrong preimage returns `InvalidPaymentPreimage`.
+- Cancellation during an in-progress settlement is rejected (`InvoiceSettlingInProgress`) to prevent race conditions during state transitions.
+- Cancellation after settlement returns `InvoiceAlreadySettled` (409).
+- Invoice metadata is persisted before inbound payment records, so a restart cannot downgrade a HODL invoice into auto-claim behavior.
+
+See OpenAPI entries for details: [`/invoice/hodl`](openapi.yaml#L652), [`/invoice/settle`](openapi.yaml#L670), and [`/invoice/cancel`](openapi.yaml#L688).
+
 ### Authentication
 
 RLN provides API authentication via [Biscuit tokens].
@@ -250,7 +301,7 @@ half signs new tokens, and the public half is shared with your node so it can
 verify them.
 
 ```sh
-# install the biscuit CLI (or download a prebuilt binary from the Biscuit releases page
+# install the biscuit CLI (or download a prebuilt binary from the Biscuit releases page)
 cargo install biscuit-cli
 
 # generate a root keypair (prints both keys)

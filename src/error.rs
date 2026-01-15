@@ -225,6 +225,12 @@ pub enum APIError {
     #[error("No claimable HTLC found for this invoice")]
     InvoiceNotClaimable,
 
+    #[error("Invoice settlement is in progress")]
+    InvoiceSettlingInProgress,
+
+    #[error("Invoice is already settled")]
+    InvoiceAlreadySettled,
+
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),
 
@@ -521,8 +527,11 @@ impl IntoResponse for APIError {
             | APIError::UnsupportedTransportType => {
                 (StatusCode::FORBIDDEN, self.to_string(), self.name())
             }
-            | APIError::InvoiceNotHodl
-            | APIError::InvoiceNotClaimable => {
+            APIError::InvoiceNotClaimable => (StatusCode::NOT_FOUND, self.to_string(), self.name()),
+            APIError::InvoiceAlreadySettled => {
+                (StatusCode::CONFLICT, self.to_string(), self.name())
+            }
+            APIError::InvoiceNotHodl | APIError::InvoiceSettlingInProgress => {
                 (StatusCode::FORBIDDEN, self.to_string(), self.name())
             }
             APIError::Network(_) | APIError::NoValidTransportEndpoint => (

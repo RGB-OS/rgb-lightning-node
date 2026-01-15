@@ -1,14 +1,15 @@
-FROM rust:1.89-slim-bookworm AS builder
+FROM rust:1.91-slim-trixie AS builder
 
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY rust-lightning ./rust-lightning
 
-RUN cargo build
+RUN cargo build --release
 
-FROM debian:bookworm-slim
 
-COPY --from=builder ./target/debug/rgb-lightning-node /usr/bin/rgb-lightning-node
+FROM debian:trixie-slim
+
+COPY --from=builder ./target/release/rgb-lightning-node /usr/bin/rgb-lightning-node
 
 RUN apt-get update && apt install -y --no-install-recommends \
     ca-certificates openssl wget s3fs bash unzip curl nvme-cli \

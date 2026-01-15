@@ -10,14 +10,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::{Network, ScriptBuf};
 use hex::DisplayHex;
-use lightning::ln::bolt11_payment::{
-    payment_parameters_from_invoice, payment_parameters_from_zero_amount_invoice,
-};
-use lightning::ln::invoice_utils::{
-    create_invoice_from_channelmanager,
-    create_invoice_from_channelmanager_and_duration_since_epoch_with_payment_hash,
-};
-use lightning::ln::types::ChannelId;
+use lightning::ln::{channelmanager::OptionalOfferPaymentParams, types::ChannelId};
 use lightning::offers::offer::{self, Offer};
 use lightning::onion_message::messenger::Destination;
 use lightning::rgb_utils::{
@@ -33,10 +26,12 @@ use lightning::{
     ln::channel_state::ChannelShutdownState, onion_message::messenger::MessageSendInstructions,
 };
 use lightning::{
-    ln::{
-        channelmanager::{PaymentId, RecipientOnionFields, Retry},
-        PaymentHash, PaymentPreimage,
-    },
+    ln::channelmanager::Bolt11InvoiceParameters,
+    routing::router::RouteParametersConfig,
+    types::payment::{PaymentHash, PaymentPreimage},
+};
+use lightning::{
+    ln::channelmanager::{PaymentId, RecipientOnionFields, Retry},
     rgb_utils::{write_rgb_channel_info, write_rgb_payment_info_file, RgbInfo},
     routing::{
         gossip::NodeId,
@@ -45,7 +40,6 @@ use lightning::{
     util::config::{ChannelHandshakeConfig, ChannelHandshakeLimits, UserConfig},
     util::{errors::APIError as LDKAPIError, IS_SWAP_SCID},
 };
-use lightning_invoice::Currency;
 use lightning_invoice::{Bolt11Invoice, PaymentSecret};
 use regex::Regex;
 use rgb_lib::{
@@ -72,7 +66,7 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 use tokio::{
     fs::File,
@@ -579,6 +573,7 @@ pub(crate) struct GetSwapResponse {
 #[display(inner)]
 pub(crate) enum HTLCStatus {
     Pending,
+    Claimable,
     Succeeded,
     Cancelled,
     Failed,
@@ -586,9 +581,10 @@ pub(crate) enum HTLCStatus {
 
 impl_writeable_tlv_based_enum!(HTLCStatus,
     (0, Pending) => {},
-    (1, Succeeded) => {},
-    (2, Failed) => {},
+    (1, Claimable) => {},
+    (2, Succeeded) => {},
     (3, Cancelled) => {},
+    (4, Failed) => {},
 );
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1792,9 +1788,10 @@ pub(crate) async fn invoice_status(
         Some(v) => match v.status {
             HTLCStatus::Pending if invoice.is_expired() => InvoiceStatus::Expired,
             HTLCStatus::Pending => InvoiceStatus::Pending,
+            HTLCStatus::Claimable => InvoiceStatus::Pending,
             HTLCStatus::Succeeded => InvoiceStatus::Succeeded,
-            HTLCStatus::Failed => InvoiceStatus::Failed,
             HTLCStatus::Cancelled => InvoiceStatus::Cancelled,
+            HTLCStatus::Failed => InvoiceStatus::Failed,
         },
         None => return Err(APIError::UnknownLNInvoice),
     };
@@ -1972,15 +1969,13 @@ pub(crate) async fn keysend(
             );
         }
 
-        let status = match unlocked_state
-            .channel_manager
-            .send_spontaneous_payment_with_retry(
-                Some(payment_preimage),
-                RecipientOnionFields::spontaneous_empty(),
-                payment_id,
-                route_params,
-                Retry::Timeout(Duration::from_secs(10)),
-            ) {
+        let status = match unlocked_state.channel_manager.send_spontaneous_payment(
+            Some(payment_preimage),
+            RecipientOnionFields::spontaneous_empty(),
+            payment_id,
+            route_params,
+            Retry::Timeout(Duration::from_secs(10)),
+        ) {
             Ok(_payment_hash) => {
                 tracing::info!(
                     "EVENT: initiated sending {} msats to {}",
@@ -2118,7 +2113,10 @@ pub(crate) async fn list_channels(
 
         if let Some(funding_txo) = chan_info.funding_txo {
             channel.funding_txid = Some(funding_txo.txid.to_string());
-            if let Ok(chan_monitor) = unlocked_state.chain_monitor.get_monitor(funding_txo) {
+            if let Ok(chan_monitor) = unlocked_state
+                .chain_monitor
+                .get_monitor(chan_info.channel_id)
+            {
                 channel.local_balance_sat = chan_monitor
                     .get_claimable_balances()
                     .iter()
@@ -2558,24 +2556,18 @@ pub(crate) async fn ln_invoice(
             )));
         }
 
-        let currency = match state.static_state.network {
-            RgbLibNetwork::Mainnet => Currency::Bitcoin,
-            RgbLibNetwork::Testnet | RgbLibNetwork::Testnet4 => Currency::BitcoinTestnet,
-            RgbLibNetwork::Regtest => Currency::Regtest,
-            RgbLibNetwork::Signet => Currency::Signet,
-        };
-        let invoice = match create_invoice_from_channelmanager(
-            &unlocked_state.channel_manager,
-            unlocked_state.keys_manager.clone(),
-            state.static_state.logger.clone(),
-            currency,
-            payload.amt_msat,
-            "ldk-tutorial-node".to_string(),
-            payload.expiry_sec,
-            None,
+        let invoice_params = Bolt11InvoiceParameters {
+            amount_msats: payload.amt_msat,
+            invoice_expiry_delta_secs: Some(payload.expiry_sec),
             contract_id,
-            payload.asset_amount,
-        ) {
+            asset_amount: payload.asset_amount,
+            ..Default::default()
+        };
+
+        let invoice = match unlocked_state
+            .channel_manager
+            .create_bolt11_invoice(invoice_params)
+        {
             Ok(inv) => inv,
             Err(e) => return Err(APIError::FailedInvoiceCreation(e.to_string())),
         };
@@ -2636,13 +2628,6 @@ pub(crate) async fn invoice_hodl(
             )));
         }
 
-        let currency = match state.static_state.network {
-            RgbLibNetwork::Mainnet => Currency::Bitcoin,
-            RgbLibNetwork::Testnet | RgbLibNetwork::Testnet4 => Currency::BitcoinTestnet,
-            RgbLibNetwork::Regtest => Currency::Regtest,
-            RgbLibNetwork::Signet => Currency::Signet,
-        };
-
         let payment_hash = validate_and_parse_payment_hash(&payload.payment_hash)?;
 
         // Reject reusing a payment hash that already exists in any of the known stores.
@@ -2657,53 +2642,43 @@ pub(crate) async fn invoice_hodl(
             return Err(APIError::PaymentHashAlreadyUsed);
         }
 
-        let duration_since_epoch = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map_err(|_| APIError::FailedInvoiceCreation("system time before UNIX_EPOCH".into()))?;
-
-        let invoice = create_invoice_from_channelmanager_and_duration_since_epoch_with_payment_hash(
-            &unlocked_state.channel_manager,
-            unlocked_state.keys_manager.clone(),
-            state.static_state.logger.clone(),
-            currency,
-            payload.amt_msat,
-            "ldk-tutorial-node".to_string(),
-            duration_since_epoch,
-            payload.expiry_sec,
-            payment_hash,
-            None,
+        let invoice_params = Bolt11InvoiceParameters {
+            amount_msats: payload.amt_msat,
+            invoice_expiry_delta_secs: Some(payload.expiry_sec),
+            payment_hash: Some(payment_hash),
             contract_id,
-            payload.asset_amount,
-        )
-        .map_err(|e| APIError::FailedInvoiceCreation(e.to_string()))?;
+            asset_amount: payload.asset_amount,
+            ..Default::default()
+        };
+
+        let invoice = unlocked_state
+            .channel_manager
+            .create_bolt11_invoice(invoice_params)
+            .map_err(|e| APIError::FailedInvoiceCreation(e.to_string()))?;
 
         let created_at = get_current_timestamp();
-        unlocked_state.add_inbound_payment(
-            payment_hash,
-            PaymentInfo {
-                preimage: None,
-                secret: Some(*invoice.payment_secret()),
-                status: HTLCStatus::Pending,
-                amt_msat: payload.amt_msat,
-                created_at,
-                updated_at: created_at,
-                payee_pubkey: unlocked_state.channel_manager.get_our_node_id(),
-            },
-        );
+        let payment_info = PaymentInfo {
+            preimage: None,
+            secret: Some(*invoice.payment_secret()),
+            status: HTLCStatus::Pending,
+            amt_msat: payload.amt_msat,
+            created_at,
+            updated_at: created_at,
+            payee_pubkey: unlocked_state.channel_manager.get_our_node_id(),
+        };
 
         let expiry_ts = invoice
             .duration_since_epoch()
             .as_secs()
             .saturating_add(invoice.expiry_time().as_secs());
-        unlocked_state.add_invoice_metadata(
-            payment_hash,
-            InvoiceMetadata {
-                mode: InvoiceMode::Hodl,
-                expected_amt_msat: payload.amt_msat.or_else(|| invoice.amount_milli_satoshis()),
-                expiry: Some(expiry_ts),
-                external_ref: payload.external_ref.clone(),
-            },
-        );
+        let metadata = InvoiceMetadata {
+            mode: InvoiceMode::Hodl,
+            expected_amt_msat: payload.amt_msat.or_else(|| invoice.amount_milli_satoshis()),
+            expiry: Some(expiry_ts),
+            external_ref: payload.external_ref.clone(),
+        };
+
+        unlocked_state.add_hodl_invoice_records(payment_hash, payment_info, metadata);
 
         Ok(Json(InvoiceHodlResponse {
             invoice: invoice.to_string(),
@@ -2715,9 +2690,13 @@ pub(crate) async fn invoice_hodl(
 
 /// Settle a HODL invoice that currently has a held HTLC. Requires the invoice
 /// `payment_hash` and the matching 32-byte `payment_preimage`. Fails if the
-/// invoice is not HODL, there is no claimable HTLC (already cancelled, expired
-/// or failed), the HTLC has timed out, or the preimage doesn't match.
-/// If the invoice is already settled, this call succeeds (idempotent).
+/// invoice is not HODL, there is no claimable HTLC (already cancelled, expired,
+/// or failed), or the preimage doesn't match. If the invoice is already settled,
+/// this call succeeds (idempotent).
+///
+/// Note: if the sender fails the HTLC and we
+/// don't receive an inbound failure signal, the claimable entry may still exist;
+/// in that case `claim_funds` is a no-op and this endpoint still returns 200.
 pub(crate) async fn invoice_settle(
     State(state): State<Arc<AppState>>,
     WithRejection(Json(payload), _): WithRejection<Json<InvoiceSettleRequest>, APIError>,
@@ -2727,7 +2706,8 @@ pub(crate) async fn invoice_settle(
         let unlocked_state = guard.as_ref().unwrap();
 
         let payment_hash = validate_and_parse_payment_hash(&payload.payment_hash)?;
-        let preimage = validate_and_parse_payment_preimage(&payload.payment_preimage, &payment_hash)?;
+        let preimage =
+            validate_and_parse_payment_preimage(&payload.payment_preimage, &payment_hash)?;
 
         let metadata = unlocked_state
             .invoice_metadata()
@@ -2743,6 +2723,11 @@ pub(crate) async fn invoice_settle(
         // This avoids failing when the claimable entry has already been cleaned up by PaymentClaimed.
         if let Some(existing) = unlocked_state.inbound_payments().get(&payment_hash) {
             if matches!(existing.status, HTLCStatus::Succeeded) {
+                // Always validate the provided preimage hashes to the invoice hash.
+                let computed_hash = PaymentHash(Sha256::hash(&preimage.0).to_byte_array());
+                if computed_hash != payment_hash {
+                    return Err(APIError::InvalidPaymentPreimage);
+                }
                 if let Some(stored_preimage) = existing.preimage {
                     if stored_preimage != preimage {
                         return Err(APIError::InvalidPaymentPreimage);
@@ -2751,14 +2736,17 @@ pub(crate) async fn invoice_settle(
                 // Already settled with matching preimage; idempotent success.
                 return Ok(Json(EmptyResponse {}));
             }
+            if matches!(
+                existing.status,
+                HTLCStatus::Pending | HTLCStatus::Cancelled | HTLCStatus::Failed
+            ) {
+                return Err(APIError::InvoiceNotClaimable);
+            }
         }
 
         // Atomically take the claimable entry so the expiry task cannot fail it between
         // validation and claim_funds.
-        let _claimable = unlocked_state.mark_claimable_settling(
-            &payment_hash,
-            metadata.expiry,
-        )?;
+        let _claimable = unlocked_state.mark_claimable_settling(&payment_hash, metadata.expiry)?;
 
         // All validations passed; now claim the funds.
         unlocked_state.channel_manager.claim_funds(preimage);
@@ -2768,6 +2756,15 @@ pub(crate) async fn invoice_settle(
     .await
 }
 
+/// Cancel a HODL invoice by attempting to fail the inbound HTLC.
+///
+/// Behavior:
+/// - Requires an existing HODL invoice; otherwise `UnknownLNInvoice`/`InvoiceNotHodl`.
+/// - If already settled, returns `InvoiceAlreadySettled` (409).
+/// - Requires a claimable HTLC entry; otherwise `InvoiceNotClaimable` (already resolved or swept).
+/// - If settling is in-flight, returns `InvoiceSettlingInProgress`.
+/// - Best-effort: calls LDK to fail the HTLC and removes the claimable entry locally; resolution
+///   is asynchronous and later LDK events may overwrite local status.
 pub(crate) async fn invoice_cancel(
     State(state): State<Arc<AppState>>,
     WithRejection(Json(payload), _): WithRejection<Json<InvoiceCancelRequest>, APIError>,
@@ -2788,9 +2785,20 @@ pub(crate) async fn invoice_cancel(
             return Err(APIError::InvoiceNotHodl);
         }
 
-        let claimable = unlocked_state
-            .claimable_payment(&payment_hash)
-            .ok_or(APIError::InvoiceNotClaimable)?;
+        let claimable = match unlocked_state.claimable_payment(&payment_hash) {
+            Some(claimable) => claimable,
+            None => {
+                if let Some(existing) = unlocked_state.inbound_payments().get(&payment_hash) {
+                    if matches!(existing.status, HTLCStatus::Succeeded) {
+                        return Err(APIError::InvoiceAlreadySettled);
+                    }
+                }
+                return Err(APIError::InvoiceNotClaimable);
+            }
+        };
+        if claimable.settling.unwrap_or(false) {
+            return Err(APIError::InvoiceSettlingInProgress);
+        }
 
         // Best-effort cancel: LDK doesn't report sync success here, so just clear the
         // claimable entry and let later events update status if it was already claimed.
@@ -3027,13 +3035,17 @@ pub(crate) async fn maker_execute(
 
         unlocked_state.update_maker_swap_status(&swapstring.payment_hash, SwapStatus::Pending);
 
-        let (_status, err) = match unlocked_state.channel_manager.send_spontaneous_payment(
-            &route,
-            Some(payment_preimage),
-            RecipientOnionFields::spontaneous_empty(),
-            PaymentId(swapstring.payment_hash.0),
-        ) {
-            Ok(_payment_hash) => {
+        let payment_hash: PaymentHash = payment_preimage.into();
+        let (_status, err) = match unlocked_state
+            .channel_manager
+            .send_spontaneous_payment_with_route(
+                route,
+                payment_hash,
+                payment_preimage,
+                RecipientOnionFields::spontaneous_empty(),
+                PaymentId(swapstring.payment_hash.0),
+            ) {
+            Ok(()) => {
                 tracing::debug!("EVENT: initiated swap");
                 (HTLCStatus::Pending, None)
             }
@@ -3161,9 +3173,10 @@ pub(crate) async fn node_info(
 
     let close_fees_map = |b| match b {
         &Balance::ClaimableOnChannelClose {
-            transaction_fee_satoshis,
+            ref balance_candidates,
+            confirmed_balance_candidate_index,
             ..
-        } => transaction_fee_satoshis,
+        } => balance_candidates[confirmed_balance_candidate_index].transaction_fee_satoshis,
         _ => 0,
     };
     let eventual_close_fees_sat = balances.iter().map(close_fees_map).sum::<u64>();
@@ -3777,14 +3790,16 @@ pub(crate) async fn send_payment(
                     amt_msat: Some(amt_msat),
                     created_at,
                     updated_at: created_at,
-                    payee_pubkey: offer.signing_pubkey().ok_or(APIError::InvalidInvoice(s!("missing signing pubkey")))?,
+                    payee_pubkey: offer.issuer_signing_pubkey().ok_or(APIError::InvalidInvoice(s!("missing signing pubkey")))?,
                 },
             )?;
 
-            let retry = Retry::Timeout(Duration::from_secs(10));
-            let amt = Some(amt_msat);
+            let params = OptionalOfferPaymentParams {
+                retry_strategy: Retry::Timeout(Duration::from_secs(10)),
+                ..Default::default()
+            };
             let pay = unlocked_state.channel_manager
-                .pay_for_offer(&offer, None, amt, None, payment_id, retry, None);
+                .pay_for_offer(&offer, Some(amt_msat), payment_id, params);
             if pay.is_err() {
                 tracing::error!("ERROR: failed to pay: {:?}", pay);
                 unlocked_state.update_outbound_payment_status(payment_id, HTLCStatus::Failed);
@@ -3802,9 +3817,10 @@ pub(crate) async fn send_payment(
             let payment_secret = Some(*invoice.payment_secret());
             let zero_amt_invoice =
                 invoice.amount_milli_satoshis().is_none() || invoice.amount_milli_satoshis() == Some(0);
-            let (pay_params_opt, amt_msat) = if zero_amt_invoice {
+
+            let amt_msat = if zero_amt_invoice {
                 if let Some(amt_msat) = payload.amt_msat {
-                    (payment_parameters_from_zero_amount_invoice(&invoice, amt_msat), amt_msat)
+                    amt_msat
                 } else {
                     return Err(APIError::InvalidAmount(s!(
                         "need an amount for the given 0-value invoice"
@@ -3817,15 +3833,7 @@ pub(crate) async fn send_payment(
                         "amount didn't match invoice value of {}msat", invoice.amount_milli_satoshis().unwrap_or(0)
                     )));
                 }
-                (payment_parameters_from_invoice(&invoice), invoice.amount_milli_satoshis().unwrap_or(0))
-            };
-            let (payment_hash, recipient_onion, route_params) = match pay_params_opt {
-                Ok(res) => res,
-                Err(e) => {
-                    return Err(APIError::InvalidInvoice(format!(
-                        "failed to parse invoice: {e:?}"
-                    )));
-                },
+                invoice.amount_milli_satoshis().unwrap_or(0)
             };
 
             let rgb_payment = match (invoice.rgb_contract_id(), invoice.rgb_amount()) {
@@ -3863,6 +3871,7 @@ pub(crate) async fn send_payment(
                     payee_pubkey: invoice.get_payee_pub_key(),
                 },
             )?;
+            let payment_hash = PaymentHash(invoice.payment_hash().to_byte_array());
             if let Some((contract_id, rgb_amount)) = rgb_payment {
                 write_rgb_payment_info_file(
                     &PathBuf::from(&state.static_state.ldk_data_dir),
@@ -3874,11 +3883,11 @@ pub(crate) async fn send_payment(
                 );
             }
 
-            match unlocked_state.channel_manager.send_payment(
-                payment_hash,
-                recipient_onion,
+            match unlocked_state.channel_manager.pay_for_bolt11_invoice(
+                &invoice,
                 payment_id,
-                route_params,
+                Some(amt_msat),
+                RouteParametersConfig::default(),
                 Retry::Timeout(Duration::from_secs(10)),
             ) {
                 Ok(_) => {

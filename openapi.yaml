@@ -654,7 +654,7 @@ paths:
       tags:
         - Invoices
       summary: Create a HODL LN invoice
-      description: Create a BOLT11 invoice with a caller-provided payment hash; settlement is deferred until settle/cancel.
+      description: Create a BOLT11 invoice with a caller-provided payment hash; settlement is deferred until settle/cancel. Metadata is persisted first to preserve HODL semantics across restarts.
       requestBody:
         content:
           application/json:
@@ -690,7 +690,7 @@ paths:
       tags:
         - Invoices
       summary: Cancel a HODL invoice
-      description: Cancel a held HTLC for a HODL invoice
+      description: Cancel a held HTLC for a HODL invoice. Rejects cancellation if a settlement is already in progress.
       requestBody:
         content:
           application/json:
@@ -1591,7 +1591,9 @@ components:
       type: string
       enum:
         - Pending
+        - Claimable
         - Succeeded
+        - Cancelled
         - Failed
     IndexerProtocol:
       type: string

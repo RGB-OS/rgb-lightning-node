@@ -372,13 +372,13 @@ async fn create_utxos(node_address: SocketAddr, up_to: bool, num: Option<u8>, si
     println!(
         "creating{}{} UTXOs{} for node {node_address}",
         if up_to { " up to" } else { "" },
-        if num.is_some() {
-            format!(" {}", num.unwrap())
+        if let Some(num) = num {
+            format!(" {}", num)
         } else {
             s!("")
         },
-        if size.is_some() {
-            format!(" of size {}", size.unwrap())
+        if let Some(size) = size {
+            format!(" of size {}", size)
         } else {
             s!("")
         },
@@ -571,7 +571,11 @@ async fn invoice_hodl(
         .send()
         .await
         .unwrap();
-    _check_response_is_ok(res).await.json::<InvoiceHodlResponse>().await.unwrap()
+    _check_response_is_ok(res)
+        .await
+        .json::<InvoiceHodlResponse>()
+        .await
+        .unwrap()
 }
 
 async fn invoice_settle(node_address: SocketAddr, payment_hash: String, payment_preimage: String) {
