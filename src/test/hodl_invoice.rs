@@ -123,6 +123,7 @@ async fn invoice_post_expect_error<T: Serialize>(
     check_response_is_nok(res, expected_status, expected_message, expected_name).await;
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn invoice_hodl_expect_error(
     node_address: SocketAddr,
     amt_msat: Option<u64>,

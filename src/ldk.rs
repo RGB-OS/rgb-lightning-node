@@ -1085,13 +1085,11 @@ async fn handle_ldk_events(
                     unlocked_state.channel_manager.claim_funds(preimage);
                 }
                 InvoiceMode::Hodl => {
-                    let claim_deadline_height = claim_deadline.map(|h| h);
-
                     let claimable = ClaimablePayment {
                         payment_hash,
                         amount_msat,
                         invoice_expiry: metadata.expiry,
-                        claim_deadline_height,
+                        claim_deadline_height: claim_deadline,
                         created_at: now_ts,
                         settling: Some(false),
                         settling_since: None,
