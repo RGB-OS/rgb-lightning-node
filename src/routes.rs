@@ -2736,7 +2736,10 @@ pub(crate) async fn invoice_settle(
                 // Already settled with matching preimage; idempotent success.
                 return Ok(Json(EmptyResponse {}));
             }
-            if matches!(existing.status, HTLCStatus::Pending | HTLCStatus::Cancelled | HTLCStatus::Failed) {
+            if matches!(
+                existing.status,
+                HTLCStatus::Pending | HTLCStatus::Cancelled | HTLCStatus::Failed
+            ) {
                 return Err(APIError::InvoiceNotClaimable);
             }
         }
