@@ -2608,6 +2608,14 @@ pub(crate) async fn ln_invoice(
     .await
 }
 
+/// Create a BOLT11 HODL invoice with a caller-supplied payment hash.
+///
+/// This endpoint builds a Lightning invoice that will not be auto-claimed.
+/// When an HTLC for the invoice is received, it is held in a claimable state
+/// until an explicit `/invoice/settle` or `/invoice/cancel` is called.
+///
+/// Response:
+/// - Returns the encoded invoice and the `payment_secret`.
 pub(crate) async fn invoice_hodl(
     State(state): State<Arc<AppState>>,
     WithRejection(Json(payload), _): WithRejection<Json<InvoiceHodlRequest>, APIError>,
@@ -2694,9 +2702,12 @@ pub(crate) async fn invoice_hodl(
 /// or failed), or the preimage doesn't match. If the invoice is already settled,
 /// this call succeeds (idempotent).
 ///
-/// Note: if the sender fails the HTLC and we
-/// don't receive an inbound failure signal, the claimable entry may still exist;
-/// in that case `claim_funds` is a no-op and this endpoint still returns 200.
+/// Note:
+/// - If the sender fails the HTLC and we don't receive an inbound failure signal, the claimable entry may still exist;
+///   in that case `claim_funds` is a no-op and this endpoint still returns 200.
+/// - This endpoint only hands the preimage to LDK and does not guarantee settlement. The canonical source
+///   for payment status is `/invoicestatus`. Call it with the original BOLT11 invoice
+///   and poll until it reports Succeeded (or Failed/Cancelled/Expired).
 pub(crate) async fn invoice_settle(
     State(state): State<Arc<AppState>>,
     WithRejection(Json(payload), _): WithRejection<Json<InvoiceSettleRequest>, APIError>,
