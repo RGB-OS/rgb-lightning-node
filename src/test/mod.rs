@@ -555,13 +555,15 @@ async fn invoice_hodl(
     amt_msat: Option<u64>,
     expiry_sec: u32,
     payment_hash: String,
+    asset_id: Option<&str>,
+    asset_amount: Option<u64>,
 ) -> InvoiceHodlResponse {
     println!("creating HODL invoice on node {node_address}");
     let payload = InvoiceHodlRequest {
         amt_msat,
         expiry_sec,
-        asset_id: None,
-        asset_amount: None,
+        asset_id: asset_id.map(|id| id.to_string()),
+        asset_amount,
         payment_hash,
         external_ref: None,
     };

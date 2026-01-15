@@ -12,6 +12,7 @@ use crate::{
     utils::{hex_str, validate_and_parse_payment_hash, LDK_DIR},
 };
 
+use self::routes::HTLC_MIN_MSAT;
 use super::*;
 
 const TEST_DIR_BASE: &str = "tmp/hodl_invoice/";
@@ -55,6 +56,47 @@ async fn setup_two_nodes_with_channel(
     (node1_addr, node2_addr, test_dir_node1, test_dir_node2)
 }
 
+async fn setup_two_nodes_with_asset_channel(
+    test_dir_suffix: &str,
+    port_offset: u16,
+    asset_channel_amount: u64,
+) -> (SocketAddr, SocketAddr, String, String, String) {
+    let test_dir_base = format!("{TEST_DIR_BASE}{test_dir_suffix}/");
+    let test_dir_node1 = format!("{test_dir_base}node1");
+    let test_dir_node2 = format!("{test_dir_base}node2");
+    let node1_port = NODE1_PEER_PORT + port_offset;
+    let node2_port = NODE2_PEER_PORT + port_offset;
+    let (node1_addr, _) = start_node(&test_dir_node1, node1_port, false).await;
+    let (node2_addr, _) = start_node(&test_dir_node2, node2_port, false).await;
+
+    fund_and_create_utxos(node1_addr, None).await;
+    fund_and_create_utxos(node2_addr, None).await;
+
+    let asset_id = issue_asset_nia(node1_addr).await.asset_id;
+    // Create more UTXOs after issuing asset, as asset issuance consumes UTXOs
+    fund_and_create_utxos(node1_addr, None).await;
+
+    let node2_pubkey = node_info(node2_addr).await.pubkey;
+    let _channel = open_channel(
+        node1_addr,
+        &node2_pubkey,
+        Some(node2_port),
+        Some(500000),
+        Some(0),
+        Some(asset_channel_amount),
+        Some(&asset_id),
+    )
+    .await;
+
+    (
+        node1_addr,
+        node2_addr,
+        test_dir_node1,
+        test_dir_node2,
+        asset_id,
+    )
+}
+
 async fn setup_single_node(test_dir_suffix: &str, port_offset: u16) -> (SocketAddr, String) {
     let test_dir_base = format!("{TEST_DIR_BASE}{test_dir_suffix}/");
     let test_dir_node1 = format!("{test_dir_base}node1");
@@ -86,6 +128,8 @@ async fn invoice_hodl_expect_error(
     amt_msat: Option<u64>,
     expiry_sec: u32,
     payment_hash: String,
+    asset_id: Option<String>,
+    asset_amount: Option<u64>,
     expected_status: StatusCode,
     expected_message: &str,
     expected_name: &str,
@@ -94,8 +138,8 @@ async fn invoice_hodl_expect_error(
     let payload = InvoiceHodlRequest {
         amt_msat,
         expiry_sec,
-        asset_id: None,
-        asset_amount: None,
+        asset_id,
+        asset_amount,
         payment_hash,
         external_ref: None,
     };
@@ -252,8 +296,15 @@ async fn settle_hodl_invoice() {
 
     // Arrange: create a HODL invoice with a fixed payment hash.
     let (preimage_hex, payment_hash_hex) = random_preimage_and_hash();
-    let InvoiceHodlResponse { invoice, .. } =
-        invoice_hodl(node2_addr, Some(50_000), 900, payment_hash_hex.clone()).await;
+    let InvoiceHodlResponse { invoice, .. } = invoice_hodl(
+        node2_addr,
+        Some(50_000),
+        900,
+        payment_hash_hex.clone(),
+        None,
+        None,
+    )
+    .await;
     let decoded = decode_ln_invoice(node1_addr, &invoice).await;
     assert_eq!(decoded.payment_hash, payment_hash_hex);
 
@@ -267,6 +318,9 @@ async fn settle_hodl_invoice() {
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
         "wait for claimable entry to appear",
     );
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Claimable).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Claimable);
 
     // Act: settle with the chosen preimage.
     invoice_settle(node2_addr, payment_hash_hex.clone(), preimage_hex.clone()).await;
@@ -288,6 +342,78 @@ async fn settle_hodl_invoice() {
     );
 }
 
+#[serial_test::serial]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[traced_test]
+async fn settle_hodl_invoice_rgb() {
+    initialize();
+
+    let asset_channel_amount = 100;
+    let asset_payment_amount = 10;
+    let (node1_addr, node2_addr, _test_dir_node1, test_dir_node2, asset_id) =
+        setup_two_nodes_with_asset_channel("settle-rgb", 60, asset_channel_amount).await;
+
+    let initial_ln_balance_node1 = asset_balance_offchain_outbound(node1_addr, &asset_id).await;
+    let initial_ln_balance_node2 = asset_balance_offchain_outbound(node2_addr, &asset_id).await;
+
+    let (preimage_hex, payment_hash_hex) = random_preimage_and_hash();
+    let InvoiceHodlResponse { invoice, .. } = invoice_hodl(
+        node2_addr,
+        Some(HTLC_MIN_MSAT),
+        900,
+        payment_hash_hex.clone(),
+        Some(&asset_id),
+        Some(asset_payment_amount),
+    )
+    .await;
+    let decoded = decode_ln_invoice(node1_addr, &invoice).await;
+    assert_eq!(decoded.payment_hash, payment_hash_hex);
+    assert_eq!(decoded.amt_msat, Some(3_000_000));
+    assert_eq!(decoded.asset_id, Some(asset_id.to_string()));
+    assert_eq!(decoded.asset_amount, Some(asset_payment_amount));
+
+    let _ = send_payment_with_status(node1_addr, invoice.clone(), HTLCStatus::Pending).await;
+    expect_api_ok(
+        wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
+        "wait for claimable entry to appear",
+    );
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Claimable).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Claimable);
+    assert_eq!(payee_payment.asset_id, Some(asset_id.to_string()));
+    assert_eq!(payee_payment.asset_amount, Some(asset_payment_amount));
+
+    invoice_settle(node2_addr, payment_hash_hex.clone(), preimage_hex.clone()).await;
+
+    let payer_payment =
+        wait_for_ln_payment(node1_addr, &decoded.payment_hash, HTLCStatus::Succeeded).await;
+    assert_eq!(payer_payment.status, HTLCStatus::Succeeded);
+    assert_eq!(payer_payment.asset_id, Some(asset_id.to_string()));
+    assert_eq!(payer_payment.asset_amount, Some(asset_payment_amount));
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Succeeded).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Succeeded);
+    assert_eq!(payee_payment.asset_id, Some(asset_id.to_string()));
+    assert_eq!(payee_payment.asset_amount, Some(asset_payment_amount));
+    expect_api_ok(
+        wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, false).await,
+        "wait for claimable entry to be removed",
+    );
+
+    wait_for_ln_balance(
+        node1_addr,
+        &asset_id,
+        initial_ln_balance_node1 - asset_payment_amount,
+    )
+    .await;
+    wait_for_ln_balance(
+        node2_addr,
+        &asset_id,
+        initial_ln_balance_node2 + asset_payment_amount,
+    )
+    .await;
+}
+
 /// Idempotency: settling twice should both succeed (LDK/LND behavior).
 #[serial_test::serial]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -301,8 +427,15 @@ async fn settle_twice_succeeds() {
 
     // Arrange: create a HODL invoice with a fixed payment hash.
     let (preimage_hex, payment_hash_hex) = random_preimage_and_hash();
-    let InvoiceHodlResponse { invoice, .. } =
-        invoice_hodl(node2_addr, Some(45_000), 900, payment_hash_hex.clone()).await;
+    let InvoiceHodlResponse { invoice, .. } = invoice_hodl(
+        node2_addr,
+        Some(45_000),
+        900,
+        payment_hash_hex.clone(),
+        None,
+        None,
+    )
+    .await;
     let decoded = decode_ln_invoice(node1_addr, &invoice).await;
     assert_eq!(decoded.payment_hash, payment_hash_hex);
 
@@ -312,6 +445,9 @@ async fn settle_twice_succeeds() {
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
         "wait for claimable entry to appear",
     );
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Claimable).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Claimable);
 
     // Act: first settle with the chosen preimage.
     invoice_settle(node2_addr, payment_hash_hex.clone(), preimage_hex.clone()).await;
@@ -344,8 +480,15 @@ async fn settle_twice_wrong_preimage_fails() {
         setup_two_nodes_with_channel("settle-twice-wrong", 6).await;
 
     let (preimage_hex, payment_hash_hex) = random_preimage_and_hash();
-    let InvoiceHodlResponse { invoice, .. } =
-        invoice_hodl(node2_addr, Some(45_000), 900, payment_hash_hex.clone()).await;
+    let InvoiceHodlResponse { invoice, .. } = invoice_hodl(
+        node2_addr,
+        Some(45_000),
+        900,
+        payment_hash_hex.clone(),
+        None,
+        None,
+    )
+    .await;
     let decoded = decode_ln_invoice(node1_addr, &invoice).await;
 
     let _ = send_payment_with_status(node1_addr, invoice.clone(), HTLCStatus::Pending).await;
@@ -353,6 +496,9 @@ async fn settle_twice_wrong_preimage_fails() {
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
         "wait for claimable entry to appear",
     );
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Claimable).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Claimable);
 
     // First settle succeeds.
     invoice_settle(node2_addr, payment_hash_hex.clone(), preimage_hex.clone()).await;
@@ -386,8 +532,15 @@ async fn settle_after_expiry_idempotent_succeeds() {
         setup_two_nodes_with_channel("settle-after-expiry", 7).await;
 
     let (preimage_hex, payment_hash_hex) = random_preimage_and_hash();
-    let InvoiceHodlResponse { invoice, .. } =
-        invoice_hodl(node2_addr, Some(45_000), 10, payment_hash_hex.clone()).await;
+    let InvoiceHodlResponse { invoice, .. } = invoice_hodl(
+        node2_addr,
+        Some(45_000),
+        10,
+        payment_hash_hex.clone(),
+        None,
+        None,
+    )
+    .await;
     let decoded = decode_ln_invoice(node1_addr, &invoice).await;
 
     let _ = send_payment_with_status(node1_addr, invoice.clone(), HTLCStatus::Pending).await;
@@ -395,6 +548,9 @@ async fn settle_after_expiry_idempotent_succeeds() {
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
         "wait for claimable entry to appear",
     );
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Claimable).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Claimable);
 
     // Settle before expiry.
     invoice_settle(node2_addr, payment_hash_hex.clone(), preimage_hex.clone()).await;
@@ -423,8 +579,15 @@ async fn cancel_hodl_invoice() {
 
     // Arrange: create a HODL invoice with a fixed payment hash.
     let (_preimage_hex, payment_hash_hex) = random_preimage_and_hash();
-    let InvoiceHodlResponse { invoice, .. } =
-        invoice_hodl(node2_addr, Some(40_000), 900, payment_hash_hex.clone()).await;
+    let InvoiceHodlResponse { invoice, .. } = invoice_hodl(
+        node2_addr,
+        Some(40_000),
+        900,
+        payment_hash_hex.clone(),
+        None,
+        None,
+    )
+    .await;
     let decoded = decode_ln_invoice(node1_addr, &invoice).await;
     assert_eq!(decoded.payment_hash, payment_hash_hex);
 
@@ -438,6 +601,9 @@ async fn cancel_hodl_invoice() {
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
         "wait for claimable entry to appear",
     );
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Claimable).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Claimable);
 
     // Act: cancel and fail back the HTLC.
     invoice_cancel(node2_addr, payment_hash_hex.clone()).await;
@@ -480,8 +646,15 @@ async fn cancel_then_settle_fails() {
         setup_two_nodes_with_channel("cancel-settle", 11).await;
 
     let (preimage_hex, payment_hash_hex) = random_preimage_and_hash();
-    let InvoiceHodlResponse { invoice, .. } =
-        invoice_hodl(node2_addr, Some(40_000), 900, payment_hash_hex.clone()).await;
+    let InvoiceHodlResponse { invoice, .. } = invoice_hodl(
+        node2_addr,
+        Some(40_000),
+        900,
+        payment_hash_hex.clone(),
+        None,
+        None,
+    )
+    .await;
     let decoded = decode_ln_invoice(node1_addr, &invoice).await;
 
     let _ = send_payment_with_status(node1_addr, invoice.clone(), HTLCStatus::Pending).await;
@@ -489,6 +662,9 @@ async fn cancel_then_settle_fails() {
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
         "claimable entry should appear",
     );
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Claimable).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Claimable);
 
     invoice_cancel(node2_addr, payment_hash_hex.clone()).await;
 
@@ -518,8 +694,15 @@ async fn settle_then_cancel_fails() {
         setup_two_nodes_with_channel("settle-cancel", 12).await;
 
     let (preimage_hex, payment_hash_hex) = random_preimage_and_hash();
-    let InvoiceHodlResponse { invoice, .. } =
-        invoice_hodl(node2_addr, Some(42_000), 900, payment_hash_hex.clone()).await;
+    let InvoiceHodlResponse { invoice, .. } = invoice_hodl(
+        node2_addr,
+        Some(42_000),
+        900,
+        payment_hash_hex.clone(),
+        None,
+        None,
+    )
+    .await;
     let decoded = decode_ln_invoice(node1_addr, &invoice).await;
 
     let _ = send_payment_with_status(node1_addr, invoice.clone(), HTLCStatus::Pending).await;
@@ -527,6 +710,9 @@ async fn settle_then_cancel_fails() {
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
         "claimable entry should appear",
     );
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Claimable).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Claimable);
 
     invoice_settle(node2_addr, payment_hash_hex.clone(), preimage_hex).await;
     let payee_payment =
@@ -554,8 +740,15 @@ async fn cancel_while_settling_fails() {
         setup_two_nodes_with_channel("cancel-while-settling", 13).await;
 
     let (preimage_hex, payment_hash_hex) = random_preimage_and_hash();
-    let InvoiceHodlResponse { invoice, .. } =
-        invoice_hodl(node2_addr, Some(42_000), 900, payment_hash_hex.clone()).await;
+    let InvoiceHodlResponse { invoice, .. } = invoice_hodl(
+        node2_addr,
+        Some(42_000),
+        900,
+        payment_hash_hex.clone(),
+        None,
+        None,
+    )
+    .await;
     let decoded = decode_ln_invoice(node1_addr, &invoice).await;
 
     let _ = send_payment_with_status(node1_addr, invoice.clone(), HTLCStatus::Pending).await;
@@ -563,6 +756,9 @@ async fn cancel_while_settling_fails() {
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
         "claimable entry should appear",
     );
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Claimable).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Claimable);
 
     invoice_settle(node2_addr, payment_hash_hex.clone(), preimage_hex).await;
     expect_api_ok(
@@ -599,8 +795,15 @@ async fn expire_hodl_invoice() {
     let (_preimage_hex, payment_hash_hex) = random_preimage_and_hash();
     // Use a small-but-not-too-small expiry to let the payment reach Pending
     // before the background expiry task fails it.
-    let InvoiceHodlResponse { invoice, .. } =
-        invoice_hodl(node2_addr, Some(30_000), 20, payment_hash_hex.clone()).await;
+    let InvoiceHodlResponse { invoice, .. } = invoice_hodl(
+        node2_addr,
+        Some(30_000),
+        20,
+        payment_hash_hex.clone(),
+        None,
+        None,
+    )
+    .await;
     let decoded = decode_ln_invoice(node1_addr, &invoice).await;
     assert_eq!(decoded.payment_hash, payment_hash_hex);
 
@@ -612,6 +815,9 @@ async fn expire_hodl_invoice() {
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
         "wait for claimable entry to appear",
     );
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Claimable).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Claimable);
 
     // Assert: both sides see Failed and claimable entry is removed.
     let payer_payment =
@@ -662,8 +868,15 @@ async fn expire_hodl_invoice_by_blocks() {
 
     // Arrange: create a HODL invoice with standard expiry.
     let (_preimage_hex, payment_hash_hex) = random_preimage_and_hash();
-    let InvoiceHodlResponse { invoice, .. } =
-        invoice_hodl(node2_addr, Some(30_000), 900, payment_hash_hex.clone()).await;
+    let InvoiceHodlResponse { invoice, .. } = invoice_hodl(
+        node2_addr,
+        Some(30_000),
+        900,
+        payment_hash_hex.clone(),
+        None,
+        None,
+    )
+    .await;
     let decoded = decode_ln_invoice(node1_addr, &invoice).await;
     assert_eq!(decoded.payment_hash, payment_hash_hex);
 
@@ -673,6 +886,9 @@ async fn expire_hodl_invoice_by_blocks() {
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
         "wait for claimable entry to appear",
     );
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Claimable).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Claimable);
 
     // Mine past the claim deadline height (reported by LDK) to force timeout, then
     // give the 30s expiry task a chance to sweep it.
@@ -732,8 +948,15 @@ async fn reject_wrong_preimage_settle() {
 
     // Arrange: create a HODL invoice and pay it (pending).
     let (good_preimage_hex, payment_hash_hex) = random_preimage_and_hash();
-    let InvoiceHodlResponse { invoice, .. } =
-        invoice_hodl(node2_addr, Some(35_000), 900, payment_hash_hex.clone()).await;
+    let InvoiceHodlResponse { invoice, .. } = invoice_hodl(
+        node2_addr,
+        Some(35_000),
+        900,
+        payment_hash_hex.clone(),
+        None,
+        None,
+    )
+    .await;
     let decoded = decode_ln_invoice(node1_addr, &invoice).await;
     assert_eq!(decoded.payment_hash, payment_hash_hex);
 
@@ -742,6 +965,9 @@ async fn reject_wrong_preimage_settle() {
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
         "wait for claimable entry to appear",
     );
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Claimable).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Claimable);
 
     // Act: try to settle with a mismatching preimage.
     let (wrong_preimage_hex, _) = random_preimage_and_hash();
@@ -764,6 +990,9 @@ async fn reject_wrong_preimage_settle() {
         wait_for_claimable_state(&test_dir_node2, &payment_hash_hex, true).await,
         "wait for claimable entry to remain",
     );
+    let payee_payment =
+        wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Claimable).await;
+    assert_eq!(payee_payment.status, HTLCStatus::Claimable);
 
     // Now settle with the correct preimage; should succeed and clean up.
     invoice_settle(node2_addr, payment_hash_hex.clone(), good_preimage_hex).await;
@@ -785,8 +1014,15 @@ async fn reject_duplicate_hodl_payment_hash() {
 
     // Arrange: create the first HODL invoice.
     let (_preimage_hex, payment_hash_hex) = random_preimage_and_hash();
-    let InvoiceHodlResponse { invoice, .. } =
-        invoice_hodl(node1_addr, Some(20_000), 900, payment_hash_hex.clone()).await;
+    let InvoiceHodlResponse { invoice, .. } = invoice_hodl(
+        node1_addr,
+        Some(20_000),
+        900,
+        payment_hash_hex.clone(),
+        None,
+        None,
+    )
+    .await;
 
     // Act: attempt to create another HODL invoice with the same hash.
     invoice_hodl_expect_error(
@@ -794,6 +1030,8 @@ async fn reject_duplicate_hodl_payment_hash() {
         Some(20_000),
         900,
         payment_hash_hex.clone(),
+        None,
+        None,
         StatusCode::BAD_REQUEST,
         "Payment hash already used",
         "PaymentHashAlreadyUsed",
