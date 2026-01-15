@@ -573,6 +573,7 @@ pub(crate) struct GetSwapResponse {
 #[display(inner)]
 pub(crate) enum HTLCStatus {
     Pending,
+    Claimable,
     Succeeded,
     Cancelled,
     Failed,
@@ -580,9 +581,10 @@ pub(crate) enum HTLCStatus {
 
 impl_writeable_tlv_based_enum!(HTLCStatus,
     (0, Pending) => {},
-    (1, Succeeded) => {},
-    (2, Failed) => {},
+    (1, Claimable) => {},
+    (2, Succeeded) => {},
     (3, Cancelled) => {},
+    (4, Failed) => {},
 );
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1786,9 +1788,10 @@ pub(crate) async fn invoice_status(
         Some(v) => match v.status {
             HTLCStatus::Pending if invoice.is_expired() => InvoiceStatus::Expired,
             HTLCStatus::Pending => InvoiceStatus::Pending,
+            HTLCStatus::Claimable => InvoiceStatus::Pending,
             HTLCStatus::Succeeded => InvoiceStatus::Succeeded,
-            HTLCStatus::Failed => InvoiceStatus::Failed,
             HTLCStatus::Cancelled => InvoiceStatus::Cancelled,
+            HTLCStatus::Failed => InvoiceStatus::Failed,
         },
         None => return Err(APIError::UnknownLNInvoice),
     };
@@ -2733,7 +2736,7 @@ pub(crate) async fn invoice_settle(
                 // Already settled with matching preimage; idempotent success.
                 return Ok(Json(EmptyResponse {}));
             }
-            if matches!(existing.status, HTLCStatus::Failed | HTLCStatus::Cancelled) {
+            if matches!(existing.status, HTLCStatus::Pending | HTLCStatus::Cancelled | HTLCStatus::Failed) {
                 return Err(APIError::InvoiceNotClaimable);
             }
         }

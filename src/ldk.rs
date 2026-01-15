@@ -1099,7 +1099,7 @@ async fn handle_ldk_events(
                     unlocked_state.upsert_claimable_payment(claimable);
                     unlocked_state.upsert_inbound_payment(
                         payment_hash,
-                        HTLCStatus::Pending,
+                        HTLCStatus::Claimable,
                         None,
                         payment_secret,
                         Some(amount_msat),

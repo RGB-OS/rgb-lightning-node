@@ -1591,7 +1591,9 @@ components:
       type: string
       enum:
         - Pending
+        - Claimable
         - Succeeded
+        - Cancelled
         - Failed
     IndexerProtocol:
       type: string
