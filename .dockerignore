@@ -11,6 +11,7 @@
 !regtest.sh
 !rust-lightning/
 !src/
+!start.sh
 
 # but still ignore these
 rust-lightning/.git
