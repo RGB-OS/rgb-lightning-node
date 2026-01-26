@@ -50,8 +50,8 @@ use crate::routes::{
     list_assets, list_channels, list_payments, list_peers, list_swaps, list_transactions,
     list_transfers, list_unspents, ln_invoice, lock, maker_execute, maker_init, network_info,
     node_info, open_channel, post_asset_media, refresh_transfers, restore, revoke_token,
-    rgb_invoice, send_asset, send_btc, send_onion_message, send_payment, settle_hodl_invoice,
-    shutdown, sign_message, sync, taker, unlock,
+    rgb_invoice, rgb_invoice_htlc, send_asset, send_btc, send_onion_message, send_payment,
+    settle_hodl_invoice, shutdown, sign_message, sync, taker, unlock,
 };
 use crate::utils::{start_daemon, AppState, LOGS_DIR};
 
@@ -153,6 +153,7 @@ pub(crate) async fn app(args: UserArgs) -> Result<(Router, Arc<AppState>), AppEr
         .route("/restore", post(restore))
         .route("/revoketoken", post(revoke_token))
         .route("/rgbinvoice", post(rgb_invoice))
+        .route("/rgbinvoicehtlc", post(rgb_invoice_htlc))
         .route("/sendasset", post(send_asset))
         .route("/sendbtc", post(send_btc))
         .route("/sendonionmessage", post(send_onion_message))

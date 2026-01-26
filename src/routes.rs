@@ -7,7 +7,7 @@ use axum_extra::extract::WithRejection;
 use biscuit_auth::Biscuit;
 use bitcoin::hashes::sha256::{self, Hash as Sha256};
 use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::PublicKey;
+use bitcoin::secp256k1::{PublicKey, XOnlyPublicKey};
 use bitcoin::{Network, ScriptBuf};
 use hex::DisplayHex;
 use lightning::ln::{channelmanager::OptionalOfferPaymentParams, types::ChannelId};
@@ -59,6 +59,7 @@ use rgb_lib::{
     AssetSchema as RgbLibAssetSchema, Assignment as RgbLibAssignment,
     BitcoinNetwork as RgbLibNetwork, ContractId, RgbTransport,
 };
+use rgbinvoice::{Beneficiary, RgbInvoiceBuilder, XChainNet};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -108,6 +109,10 @@ const OPENCHANNEL_MIN_RGB_AMT: u64 = 1;
 pub const DUST_LIMIT_MSAT: u64 = 546000;
 
 const INVOICE_MIN_MSAT: u64 = HTLC_MIN_MSAT;
+const DURATION_RCV_TRANSFER: u32 = 86400;
+const RGB_STATE_ASSET_OWNER: &str = "assetOwner";
+const RGB_STATE_INFLATION_ALLOWANCE: &str = "inflationAllowance";
+const RGB_STATE_REPLACE_RIGHT: &str = "replaceRight";
 
 pub(crate) const DEFAULT_FINAL_CLTV_EXPIRY_DELTA: u32 = 14;
 
@@ -976,6 +981,16 @@ pub(crate) struct RgbInvoiceRequest {
     pub(crate) duration_seconds: Option<u32>,
     pub(crate) min_confirmations: u8,
     pub(crate) witness: bool,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct RgbInvoiceHtlcRequest {
+    pub(crate) asset_id: Option<String>,
+    pub(crate) assignment: Option<Assignment>,
+    pub(crate) duration_seconds: Option<u32>,
+    pub(crate) min_confirmations: u8,
+    pub(crate) htlc_p2tr_script_pubkey: String,
+    pub(crate) t_lock: u32,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -3554,7 +3569,7 @@ pub(crate) async fn rgb_invoice(
             return Err(APIError::OpenChannelInProgress);
         }
 
-        let assignment = payload.assignment.unwrap_or(Assignment::Any).into();
+        let assignment: RgbLibAssignment = payload.assignment.unwrap_or(Assignment::Any).into();
 
         let receive_data = if payload.witness {
             unlocked_state.rgb_witness_receive(
@@ -3579,6 +3594,153 @@ pub(crate) async fn rgb_invoice(
             invoice: receive_data.invoice,
             expiration_timestamp: receive_data.expiration_timestamp,
             batch_transfer_idx: receive_data.batch_transfer_idx,
+        }))
+    })
+    .await
+}
+
+pub(crate) async fn rgb_invoice_htlc(
+    State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<RgbInvoiceHtlcRequest>, APIError>,
+) -> Result<Json<RgbInvoiceResponse>, APIError> {
+    no_cancel(async move {
+        let guard = state.check_unlocked().await?;
+        let unlocked_state = guard.as_ref().unwrap();
+
+        if *unlocked_state.rgb_send_lock.lock().unwrap() {
+            return Err(APIError::OpenChannelInProgress);
+        }
+
+        let assignment = payload.assignment.unwrap_or(Assignment::Any).into();
+
+        // Confirm that the HTLC P2TR script pubkey is OP_1 0x20 <32-byte key>
+        let script_pubkey_hex = payload.htlc_p2tr_script_pubkey.trim();
+        if script_pubkey_hex.is_empty() {
+            return Err(APIError::InvalidRecipientData(
+                "htlc_p2tr_script_pubkey cannot be empty".into(),
+            ));
+        }
+
+        let key_vec = hex_str_to_vec(script_pubkey_hex)
+            .ok_or_else(|| {
+                APIError::InvalidRecipientData(format!(
+                    "Invalid hex encoding for htlc_p2tr_script_pubkey: {}",
+                    script_pubkey_hex
+                ))
+            })?;
+        if key_vec.len() != 34 {
+            return Err(APIError::InvalidRecipientData(format!(
+                "Invalid htlc_p2tr_script_pubkey length: expected 34 bytes (OP_1 + OP_PUSHBYTES_32 + 32-byte x-only pubkey), got {} bytes",
+                key_vec.len()
+            )));
+        }
+
+        // Validate prefix: OP_1 (0x51) + OP_PUSHBYTES_32 (0x20)
+        if key_vec[0] != 0x51 || key_vec[1] != 0x20 {
+            return Err(APIError::InvalidRecipientData(format!(
+                "Invalid htlc_p2tr_script_pubkey prefix: expected OP_1 (0x51) OP_PUSHBYTES_32 (0x20), got {:02x} {:02x}",
+                key_vec[0], key_vec[1]
+            )));
+        }
+
+        let pubkey_bytes = &key_vec[2..34];
+        if XOnlyPublicKey::from_slice(pubkey_bytes).is_err() {
+            return Err(APIError::InvalidRecipientData(
+                "Invalid htlc_p2tr_script_pubkey: invalid 32-byte x-only pubkey".into(),
+            ));
+        }
+
+        let htlc_p2tr_script_pubkey = ScriptBuf::from_bytes(key_vec);
+        if !htlc_p2tr_script_pubkey.is_p2tr() {
+            return Err(APIError::InvalidRecipientData(
+                "Invalid htlc_p2tr_script_pubkey: script is not a valid P2TR script".into(),
+            ));
+        }
+
+        let recipient_id = recipient_id_from_script_buf(
+            htlc_p2tr_script_pubkey.clone(),
+            state.static_state.network,
+        );
+        let beneficiary = XChainNet::<Beneficiary>::from_str(&recipient_id)
+            .map_err(|_| {
+                APIError::InvalidRecipientData(format!(
+                    "Failed to parse recipient_id from P2TR script: invalid recipient_id format '{}'",
+                    recipient_id
+                ))
+            })?;
+
+        let (contract_id, asset_schema) = if let Some(ref asset_id) = payload.asset_id {
+            let contract_id = ContractId::from_str(asset_id)
+                .map_err(|e| APIError::InvalidAssetID(e.to_string()))?;
+            let metadata = unlocked_state
+                .rgb_get_asset_metadata(contract_id)
+                .map_err(|e| APIError::FailedInvoiceCreation(e.to_string()))?;
+            (Some(contract_id), Some(metadata.asset_schema))
+        } else {
+            (None, None)
+        };
+
+        let mut invoice_builder = RgbInvoiceBuilder::new(beneficiary);
+        if let Some(schema) = asset_schema.clone() {
+            invoice_builder = invoice_builder.set_schema(schema.into());
+        }
+        if let Some(contract_id) = contract_id {
+            invoice_builder = invoice_builder.set_contract(contract_id);
+        }
+
+        invoice_builder = invoice_builder
+            .add_transports([unlocked_state.proxy_endpoint.as_str()])
+            .map_err(|(_, e)| APIError::InvalidTransportEndpoints(e.to_string()))?;
+
+        match (&assignment, asset_schema) {
+            (
+                RgbLibAssignment::Fungible(amt),
+                Some(RgbLibAssetSchema::Nia)
+                | Some(RgbLibAssetSchema::Cfa)
+                | Some(RgbLibAssetSchema::Ifa)
+                | None,
+            ) => {
+                invoice_builder = invoice_builder.set_amount_raw(*amt);
+                invoice_builder = invoice_builder.set_assignment_name(RGB_STATE_ASSET_OWNER);
+            }
+            (RgbLibAssignment::Any, Some(RgbLibAssetSchema::Nia))
+            | (RgbLibAssignment::Any, Some(RgbLibAssetSchema::Cfa)) => {
+                invoice_builder = invoice_builder.set_assignment_name(RGB_STATE_ASSET_OWNER);
+            }
+            (RgbLibAssignment::NonFungible | RgbLibAssignment::Any, Some(RgbLibAssetSchema::Uda)) => {
+                invoice_builder = invoice_builder.set_assignment_name(RGB_STATE_ASSET_OWNER);
+            }
+            (RgbLibAssignment::ReplaceRight, Some(RgbLibAssetSchema::Ifa)) => {
+                invoice_builder = invoice_builder.set_void();
+                invoice_builder = invoice_builder.set_assignment_name(RGB_STATE_REPLACE_RIGHT);
+            }
+            (RgbLibAssignment::InflationRight(amt), Some(RgbLibAssetSchema::Ifa)) => {
+                invoice_builder = invoice_builder.set_amount_raw(*amt);
+                invoice_builder = invoice_builder.set_assignment_name(RGB_STATE_INFLATION_ALLOWANCE);
+            }
+            (RgbLibAssignment::Any, None | Some(RgbLibAssetSchema::Ifa)) => {}
+            _ => return Err(APIError::InvalidAssignment),
+        }
+
+        let expiration_timestamp = if payload.duration_seconds == Some(0) {
+            None
+        } else {
+            let created_at = get_current_timestamp() as i64;
+            let duration_seconds = payload
+                .duration_seconds
+                .unwrap_or(DURATION_RCV_TRANSFER) as i64;
+            let expiry = created_at + duration_seconds;
+            invoice_builder = invoice_builder.set_expiry_timestamp(expiry);
+            Some(expiry)
+        };
+
+        let invoice = invoice_builder.finish().to_string();
+
+        Ok(Json(RgbInvoiceResponse {
+            recipient_id,
+            invoice,
+            expiration_timestamp,
+            batch_transfer_idx: 0,
         }))
     })
     .await
