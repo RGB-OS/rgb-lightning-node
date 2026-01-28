@@ -2490,6 +2490,38 @@ pub(crate) async fn get_payment(
     Err(APIError::PaymentNotFound(payload.payment_hash))
 }
 
+/// Returns outbound payment status and preimage (when available) for polling.
+/// Used by HODL invoice workflows to claim the on-chain HTLC once the payment settles.
+pub(crate) async fn get_payment_preimage(
+    State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<GetPaymentPreimageRequest>, APIError>,
+) -> Result<Json<GetPaymentPreimageResponse>, APIError> {
+    let guard = state.check_unlocked().await?;
+    let unlocked_state = guard.as_ref().unwrap();
+
+    let payment_hash_vec = hex_str_to_vec(&payload.payment_hash);
+    if payment_hash_vec.is_none() || payment_hash_vec.as_ref().unwrap().len() != 32 {
+        return Err(APIError::InvalidPaymentHash(payload.payment_hash));
+    }
+    let requested_ph = PaymentHash(payment_hash_vec.unwrap().try_into().unwrap());
+
+    let outbound_payments = unlocked_state.outbound_payments();
+    for (payment_id, payment_info) in &outbound_payments {
+        let payment_hash = &PaymentHash(payment_id.0);
+        if payment_hash == &requested_ph {
+            let status = payment_info.status;
+            let preimage = if matches!(status, HTLCStatus::Succeeded) {
+                payment_info.preimage.map(|p| hex_str(&p.0))
+            } else {
+                None
+            };
+            return Ok(Json(GetPaymentPreimageResponse { status, preimage }));
+        }
+    }
+
+    Err(APIError::PaymentNotFound(payload.payment_hash))
+}
+
 pub(crate) async fn list_peers(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<ListPeersResponse>, APIError> {
@@ -2797,6 +2829,231 @@ pub(crate) async fn ln_invoice(
         Ok(Json(LNInvoiceResponse {
             invoice: invoice.to_string(),
         }))
+    })
+    .await
+}
+
+/// Create a BOLT11 HODL invoice with a caller-supplied payment hash.
+///
+/// This endpoint builds a Lightning invoice that will not be auto-claimed.
+/// When an HTLC for the invoice is received, it is held in a claimable state
+/// until an explicit `/invoice/settle` or `/invoice/cancel` is called.
+///
+/// Response:
+/// - Returns the encoded invoice and the `payment_secret`.
+pub(crate) async fn invoice_hodl(
+    State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<InvoiceHodlRequest>, APIError>,
+) -> Result<Json<InvoiceHodlResponse>, APIError> {
+    no_cancel(async move {
+        let guard = state.check_unlocked().await?;
+        let unlocked_state = guard.as_ref().unwrap();
+
+        let contract_id = if let Some(asset_id) = payload.asset_id {
+            Some(ContractId::from_str(&asset_id).map_err(|_| APIError::InvalidAssetID(asset_id))?)
+        } else {
+            None
+        };
+
+        if contract_id.is_some() && payload.amt_msat.unwrap_or(0) < INVOICE_MIN_MSAT {
+            return Err(APIError::InvalidAmount(format!(
+                "amt_msat cannot be less than {INVOICE_MIN_MSAT} when transferring an RGB asset"
+            )));
+        }
+
+        let payment_hash = validate_and_parse_payment_hash(&payload.payment_hash)?;
+
+        // Reject reusing a payment hash that already exists in any of the known stores.
+        let hash_already_used = unlocked_state
+            .invoice_metadata()
+            .contains_key(&payment_hash)
+            || unlocked_state
+                .inbound_payments()
+                .contains_key(&payment_hash)
+            || unlocked_state.claimable_payment(&payment_hash).is_some();
+        if hash_already_used {
+            return Err(APIError::PaymentHashAlreadyUsed);
+        }
+
+        let invoice_params = Bolt11InvoiceParameters {
+            amount_msats: payload.amt_msat,
+            invoice_expiry_delta_secs: Some(payload.expiry_sec),
+            payment_hash: Some(payment_hash),
+            contract_id,
+            asset_amount: payload.asset_amount,
+            ..Default::default()
+        };
+
+        let invoice = unlocked_state
+            .channel_manager
+            .create_bolt11_invoice(invoice_params)
+            .map_err(|e| APIError::FailedInvoiceCreation(e.to_string()))?;
+
+        let created_at = get_current_timestamp();
+        let payment_info = PaymentInfo {
+            preimage: None,
+            secret: Some(*invoice.payment_secret()),
+            status: HTLCStatus::Pending,
+            amt_msat: payload.amt_msat,
+            created_at,
+            updated_at: created_at,
+            payee_pubkey: unlocked_state.channel_manager.get_our_node_id(),
+        };
+
+        let expiry_ts = invoice
+            .duration_since_epoch()
+            .as_secs()
+            .saturating_add(invoice.expiry_time().as_secs());
+        let metadata = InvoiceMetadata {
+            mode: InvoiceMode::Hodl,
+            expected_amt_msat: payload.amt_msat.or_else(|| invoice.amount_milli_satoshis()),
+            expiry: Some(expiry_ts),
+            external_ref: payload.external_ref.clone(),
+        };
+
+        unlocked_state.add_hodl_invoice_records(payment_hash, payment_info, metadata);
+
+        Ok(Json(InvoiceHodlResponse {
+            invoice: invoice.to_string(),
+            payment_secret: hex_str(&invoice.payment_secret().0),
+        }))
+    })
+    .await
+}
+
+/// Settle a HODL invoice that currently has a held HTLC. Requires the invoice
+/// `payment_hash` and the matching 32-byte `payment_preimage`. Fails if the
+/// invoice is not HODL, there is no claimable HTLC (already cancelled, expired,
+/// or failed), or the preimage doesn't match. If the invoice is already settled,
+/// this call succeeds (idempotent).
+///
+/// Note:
+/// - If the sender fails the HTLC and we don't receive an inbound failure signal, the claimable entry may still exist;
+///   in that case `claim_funds` is a no-op and this endpoint still returns 200.
+/// - This endpoint only hands the preimage to LDK and does not guarantee settlement. The canonical source
+///   for payment status is `/invoicestatus`. Call it with the original BOLT11 invoice
+///   and poll until it reports Succeeded (or Failed/Cancelled/Expired).
+pub(crate) async fn invoice_settle(
+    State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<InvoiceSettleRequest>, APIError>,
+) -> Result<Json<EmptyResponse>, APIError> {
+    no_cancel(async move {
+        let guard = state.check_unlocked().await?;
+        let unlocked_state = guard.as_ref().unwrap();
+
+        let payment_hash = validate_and_parse_payment_hash(&payload.payment_hash)?;
+        let preimage =
+            validate_and_parse_payment_preimage(&payload.payment_preimage, &payment_hash)?;
+
+        let metadata = unlocked_state
+            .invoice_metadata()
+            .get(&payment_hash)
+            .cloned()
+            .ok_or(APIError::UnknownLNInvoice)?;
+
+        if metadata.mode != InvoiceMode::Hodl {
+            return Err(APIError::InvoiceNotHodl);
+        }
+
+        // Idempotent path: if this payment already succeeded, validate preimage and return OK.
+        // This avoids failing when the claimable entry has already been cleaned up by PaymentClaimed.
+        if let Some(existing) = unlocked_state.inbound_payments().get(&payment_hash) {
+            if matches!(existing.status, HTLCStatus::Succeeded) {
+                // Always validate the provided preimage hashes to the invoice hash.
+                let computed_hash = PaymentHash(Sha256::hash(&preimage.0).to_byte_array());
+                if computed_hash != payment_hash {
+                    return Err(APIError::InvalidPaymentPreimage);
+                }
+                if let Some(stored_preimage) = existing.preimage {
+                    if stored_preimage != preimage {
+                        return Err(APIError::InvalidPaymentPreimage);
+                    }
+                }
+                // Already settled with matching preimage; idempotent success.
+                return Ok(Json(EmptyResponse {}));
+            }
+            if matches!(
+                existing.status,
+                HTLCStatus::Pending | HTLCStatus::Cancelled | HTLCStatus::Failed
+            ) {
+                return Err(APIError::InvoiceNotClaimable);
+            }
+        }
+
+        // Atomically take the claimable entry so the expiry task cannot fail it between
+        // validation and claim_funds.
+        let _claimable = unlocked_state.mark_claimable_settling(&payment_hash, metadata.expiry)?;
+
+        // All validations passed; now claim the funds.
+        unlocked_state.channel_manager.claim_funds(preimage);
+
+        Ok(Json(EmptyResponse {}))
+    })
+    .await
+}
+
+/// Cancel a HODL invoice by attempting to fail the inbound HTLC.
+///
+/// Behavior:
+/// - Requires an existing HODL invoice; otherwise `UnknownLNInvoice`/`InvoiceNotHodl`.
+/// - If already settled, returns `InvoiceAlreadySettled` (409).
+/// - Requires a claimable HTLC entry; otherwise `InvoiceNotClaimable` (already resolved or swept).
+/// - If settling is in-flight, returns `InvoiceSettlingInProgress`.
+/// - Best-effort: calls LDK to fail the HTLC and removes the claimable entry locally; resolution
+///   is asynchronous and later LDK events may overwrite local status.
+pub(crate) async fn invoice_cancel(
+    State(state): State<Arc<AppState>>,
+    WithRejection(Json(payload), _): WithRejection<Json<InvoiceCancelRequest>, APIError>,
+) -> Result<Json<EmptyResponse>, APIError> {
+    no_cancel(async move {
+        let guard = state.check_unlocked().await?;
+        let unlocked_state = guard.as_ref().unwrap();
+
+        let payment_hash = validate_and_parse_payment_hash(&payload.payment_hash)?;
+
+        let metadata = unlocked_state
+            .invoice_metadata()
+            .get(&payment_hash)
+            .cloned()
+            .ok_or(APIError::UnknownLNInvoice)?;
+
+        if metadata.mode != InvoiceMode::Hodl {
+            return Err(APIError::InvoiceNotHodl);
+        }
+
+        let claimable = match unlocked_state.claimable_payment(&payment_hash) {
+            Some(claimable) => claimable,
+            None => {
+                if let Some(existing) = unlocked_state.inbound_payments().get(&payment_hash) {
+                    if matches!(existing.status, HTLCStatus::Succeeded) {
+                        return Err(APIError::InvoiceAlreadySettled);
+                    }
+                }
+                return Err(APIError::InvoiceNotClaimable);
+            }
+        };
+        if claimable.settling.unwrap_or(false) {
+            return Err(APIError::InvoiceSettlingInProgress);
+        }
+
+        // Best-effort cancel: LDK doesn't report sync success here, so just clear the
+        // claimable entry and let later events update status if it was already claimed.
+        unlocked_state
+            .channel_manager
+            .fail_htlc_backwards(&payment_hash);
+        // Best-effort cleanup; ignore if already removed.
+        let _ = unlocked_state.take_claimable_payment(&payment_hash);
+
+        unlocked_state.upsert_inbound_payment(
+            payment_hash,
+            HTLCStatus::Cancelled,
+            None,
+            None,
+            Some(claimable.amount_msat),
+            unlocked_state.channel_manager.get_our_node_id(),
+        );
+
+        Ok(Json(EmptyResponse {}))
     })
     .await
 }

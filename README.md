@@ -1,4 +1,4 @@
-# RLN - RGB Lightning Node
+# RLN - RGB Lightning Node 
 
 RGB-enabled LN node daemon ported from [rgb-lightning-sample], which is based
 on [ldk-sample].
@@ -223,6 +223,9 @@ The node currently exposes the following APIs:
 - `/hodlinvoice` (POST)
 - `/init` (POST)
 - `/invoicestatus` (POST)
+- `/invoice/hodl` (POST)
+- `/invoice/settle` (POST)
+- `/invoice/cancel` (POST)
 - `/issueassetcfa` (POST)
 - `/issueassetnia` (POST)
 - `/issueassetuda` (POST)
@@ -272,6 +275,24 @@ If a daemon is running on your machine on one of the example ports
 given above, you can even call the APIs directly from the Swagger UI.
 
 To stop the daemon, exit with the `/shutdown` API (or press `Ctrl+C`).
+
+### HODL Invoices
+
+HODL invoices are invoices whose incoming HTLCs are not auto-claimed when received; they stay pending until you explicitly settle or cancel them. This enables features like submarine swaps (on-chain/L1 to off-chain/L2 through Lightning) where you want to verify external conditions before releasing the preimage.
+
+**Basic flow:**
+- Create: POST `/invoice/hodl` to issue a HODL invoice.
+- Receive: the HTLC remains pending/claimable until you act.
+- Settle: POST `/invoice/settle` with the correct preimage to complete settlement.
+- Cancel: POST `/invoice/cancel` to fail the HTLC if you choose not to settle.
+
+**Behavior reminders:**
+- Settlement is idempotent for the correct preimage; a wrong preimage returns `InvalidPaymentPreimage`.
+- Cancellation during an in-progress settlement is rejected (`InvoiceSettlingInProgress`) to prevent race conditions during state transitions.
+- Cancellation after settlement returns `InvoiceAlreadySettled` (409).
+- Invoice metadata is persisted before inbound payment records, so a restart cannot downgrade a HODL invoice into auto-claim behavior.
+
+See OpenAPI entries for details: [`/invoice/hodl`](openapi.yaml#L652), [`/invoice/settle`](openapi.yaml#L670), and [`/invoice/cancel`](openapi.yaml#L688).
 
 ### Authentication
 
