@@ -436,6 +436,11 @@ impl UnlockedAppState {
             return Err(APIError::InvoiceNotClaimable);
         };
 
+        // Check if settlement is already in progress (atomic check-and-set).
+        if claimable.settling.unwrap_or(false) {
+            return Err(APIError::InvoiceSettlingInProgress);
+        }
+
         let current_height = self.channel_manager.current_best_block().height;
         let now_ts = get_current_timestamp();
 

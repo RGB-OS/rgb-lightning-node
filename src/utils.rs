@@ -481,6 +481,7 @@ pub(crate) fn validate_and_parse_payment_hash(
 /// Validates a hex-encoded payment preimage string, converts it to a PaymentPreimage,
 /// and verifies that it matches the provided payment hash.
 /// Returns an error if the string is invalid, not exactly 32 bytes, or doesn't match the hash.
+/// TODO feat_submarine_rgb: this function will also be used in the new submarine swap of rgb assets task
 pub(crate) fn validate_and_parse_payment_preimage(
     payment_preimage_str: &str,
     payment_hash: &PaymentHash,

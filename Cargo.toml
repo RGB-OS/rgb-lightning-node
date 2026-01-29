@@ -40,6 +40,7 @@ rgb-lib = { version = "0.3.0-beta.4", features = [
     "electrum",
     "esplora",
 ] }
+rgb-invoicing = "0.11.1-rc.6"
 scrypt = "0.11.0"
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = "1.0"

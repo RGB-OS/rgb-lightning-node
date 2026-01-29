@@ -4181,6 +4181,7 @@ dependencies = [
  "rand 0.8.5",
  "regex",
  "reqwest",
+ "rgb-invoicing",
  "rgb-lib",
  "scrypt",
  "serde",
