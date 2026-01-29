@@ -1,12 +1,15 @@
 use amplify::s;
 use biscuit_auth::{builder::date, macros::*, KeyPair};
+use bitcoin::hashes::{sha256::Hash as Sha256, Hash};
 use chrono::{DateTime, Local, Utc};
 use electrum_client::ElectrumApi;
 use lazy_static::lazy_static;
 use lightning_invoice::Bolt11Invoice;
 use once_cell::sync::Lazy;
-use reqwest::Response;
+use rand::RngCore;
+use reqwest::{Response, StatusCode};
 use rgb_lib::BitcoinNetwork;
+use serde::Serialize;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -17,7 +20,8 @@ use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 use tracing_test::traced_test;
 
-use crate::error::APIErrorResponse;
+use crate::disk::{read_claimable_htlcs, CLAIMABLE_HTLCS_FNAME};
+use crate::error::{APIError, APIErrorResponse};
 use crate::ldk::FEE_RATE;
 use crate::routes::{
     AddressResponse, AssetBalanceRequest, AssetBalanceResponse, AssetCFA, AssetNIA, AssetUDA,
@@ -39,9 +43,12 @@ use crate::routes::{
     OpenChannelResponse, Payment, Peer, PostAssetMediaResponse, RefreshRequest, RestoreRequest,
     RevokeTokenRequest, RgbInvoiceRequest, RgbInvoiceResponse, SendAssetRequest, SendAssetResponse,
     SendBtcRequest, SendBtcResponse, SendPaymentRequest, SendPaymentResponse, Swap, SwapStatus,
-    TakerRequest, Transaction, Transfer, UnlockRequest, Unspent, WitnessData,
+    TakerRequest, Transaction, Transfer, UnlockRequest, Unspent, WitnessData, HTLC_MIN_MSAT,
 };
-use crate::utils::{hex_str_to_vec, ELECTRUM_URL_REGTEST, PROXY_ENDPOINT_LOCAL};
+use crate::utils::{
+    hex_str, hex_str_to_vec, validate_and_parse_payment_hash, ELECTRUM_URL_REGTEST, LDK_DIR,
+    PROXY_ENDPOINT_LOCAL,
+};
 
 use super::*;
 
@@ -101,6 +108,23 @@ async fn check_response_is_nok(
     assert_eq!(api_error_response.code, expected_status.as_u16());
     assert!(api_error_response.error.contains(expected_message));
     assert_eq!(api_error_response.name, expected_name);
+}
+
+async fn post_and_check_error_response<T: Serialize>(
+    node_address: SocketAddr,
+    path: &str,
+    payload: &T,
+    expected_status: StatusCode,
+    expected_message: &str,
+    expected_name: &str,
+) {
+    let res = reqwest::Client::new()
+        .post(format!("http://{node_address}{path}"))
+        .json(payload)
+        .send()
+        .await
+        .unwrap();
+    check_response_is_nok(res, expected_status, expected_message, expected_name).await;
 }
 
 fn _fund_wallet(address: String) {
@@ -568,7 +592,7 @@ async fn invoice_hodl(
         external_ref: None,
     };
     let res = reqwest::Client::new()
-        .post(format!("http://{node_address}/invoice/hodl"))
+        .post(format!("http://{node_address}/hodlinvoice"))
         .json(&payload)
         .send()
         .await
@@ -587,7 +611,7 @@ async fn invoice_settle(node_address: SocketAddr, payment_hash: String, payment_
         payment_preimage,
     };
     let res = reqwest::Client::new()
-        .post(format!("http://{node_address}/invoice/settle"))
+        .post(format!("http://{node_address}/settlehodlinvoice"))
         .json(&payload)
         .send()
         .await
@@ -599,7 +623,7 @@ async fn invoice_cancel(node_address: SocketAddr, payment_hash: String) {
     println!("cancelling HODL invoice {payment_hash} on node {node_address}");
     let payload = InvoiceCancelRequest { payment_hash };
     let res = reqwest::Client::new()
-        .post(format!("http://{node_address}/invoice/cancel"))
+        .post(format!("http://{node_address}/cancelhodlinvoice"))
         .json(&payload)
         .send()
         .await
@@ -1256,8 +1280,8 @@ async fn open_channel_raw(
                 && c.asset_id == asset_id.map(|id| id.to_string())
                 && c.asset_local_amount == asset_amount
         }) {
-            if channel.funding_txid.is_some() {
-                let txout = _get_txout(channel.funding_txid.as_ref().unwrap());
+            if let Some(funding_txid) = &channel.funding_txid {
+                let txout = _get_txout(funding_txid);
                 if !txout.is_empty() {
                     mine_n_blocks(false, 6);
                     channel_id = Some(channel.channel_id.clone());
