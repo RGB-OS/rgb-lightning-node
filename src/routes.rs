@@ -3681,7 +3681,7 @@ pub(crate) async fn rgb_invoice_htlc(
         };
 
         let mut invoice_builder = RgbInvoiceBuilder::new(beneficiary);
-        if let Some(schema) = asset_schema.clone() {
+        if let Some(schema) = asset_schema {
             invoice_builder = invoice_builder.set_schema(schema.into());
         }
         if let Some(contract_id) = contract_id {
