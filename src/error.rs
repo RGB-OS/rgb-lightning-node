@@ -366,7 +366,6 @@ impl From<RgbLibError> for APIError {
             }
             RgbLibError::InvalidAddress { details } => APIError::InvalidAddress(details),
             RgbLibError::InvalidAmountZero => APIError::InvalidAmount(s!("0")),
-            RgbLibError::InvalidAssetID { asset_id } => APIError::InvalidAssetID(asset_id),
             RgbLibError::InvalidAssignment => APIError::InvalidAssignment,
             RgbLibError::InvalidAttachments { details } => APIError::InvalidAttachments(details),
             RgbLibError::InvalidDetails { details } => APIError::InvalidDetails(details),
@@ -479,6 +478,7 @@ impl IntoResponse for APIError {
             | APIError::InvalidTransportEndpoints(_)
             | APIError::MediaFileEmpty
             | APIError::MediaFileNotProvided
+            | APIError::SignetCustomRequiresExplicitEndpoints
             | APIError::MissingSwapPaymentPreimage
             | APIError::OutputBelowDustLimit
             | APIError::ClaimDeadlineExceeded
