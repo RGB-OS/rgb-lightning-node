@@ -340,7 +340,6 @@ impl From<Network> for BitcoinNetwork {
             Network::Testnet4 => Self::Testnet4,
             Network::Regtest => Self::Regtest,
             Network::Signet => Self::Signet,
-            _ => unimplemented!("unsupported network"),
         }
     }
 }
@@ -352,7 +351,7 @@ impl From<RgbLibNetwork> for BitcoinNetwork {
             RgbLibNetwork::Testnet => Self::Testnet,
             RgbLibNetwork::Testnet4 => Self::Testnet4,
             RgbLibNetwork::Regtest => Self::Regtest,
-            RgbLibNetwork::Signet => Self::Signet,
+            RgbLibNetwork::Signet | RgbLibNetwork::SignetCustom(_) => Self::Signet,
         }
     }
 }
