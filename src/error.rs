@@ -246,6 +246,9 @@ pub enum APIError {
     #[error("Media file has not been provided")]
     MediaFileNotProvided,
 
+    #[error("Custom Signet network requires explicit bitcoind/electrum endpoints")]
+    SignetCustomRequiresExplicitEndpoints,
+
     #[error("Max fee exceeded for transfer with TXID: {0}")]
     MaxFeeExceeded(String),
 

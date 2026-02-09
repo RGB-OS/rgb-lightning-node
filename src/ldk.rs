@@ -1963,6 +1963,11 @@ pub(crate) async fn start_ldk(
     }
 
     // RGB setup
+    if matches!(bitcoin_network, BitcoinNetwork::SignetCustom(_))
+        && unlock_request.indexer_url.is_none()
+    {
+        return Err(APIError::SignetCustomRequiresExplicitEndpoints);
+    }
     let indexer_url = if let Some(indexer_url) = &unlock_request.indexer_url {
         let indexer_protocol = check_indexer_url(indexer_url, bitcoin_network)?;
         tracing::info!(
