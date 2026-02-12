@@ -607,5 +607,8 @@ async fn submarine_swap_sweeper_broadcasts_mixed_claim() {
         .find(|(k, _)| hex_str(&k.0).eq_ignore_ascii_case(&payment_hash_hex))
         .map(|(_, v)| v)
         .expect("htlc tracker entry");
-    assert_eq!(entry.status, "SweepBroadcast");
+    assert!(matches!(
+        entry.status.as_str(),
+        "SweepBroadcast" | "ClaimConfirmed"
+    ));
 }

@@ -2405,7 +2405,10 @@ pub(crate) async fn htlc_claim(
             .ok_or(APIError::InvalidHtlcParams(
                 "HTLC tracker entry not found".into(),
             ))?;
-        if entry.status == "ClaimRequested" || entry.status == "SweepBroadcast" {
+        if matches!(
+            entry.status.as_str(),
+            "ClaimRequested" | "ClaimConfirmed" | "SweepBroadcast"
+        ) {
             if let Some(existing) = entry.preimage.as_ref() {
                 if !existing.eq_ignore_ascii_case(&preimage_hex) {
                     return Err(APIError::InvalidHtlcParams(
@@ -2494,7 +2497,10 @@ pub(crate) async fn htlc_scan(
         let scan = scan_htlc_funding(unlocked_state, entry, &computed_spk, network, false).await?;
         ensure_htlc_tracker_scripts(entry, &taproot_info)?;
         entry.funding = scan.descriptors;
-        if entry.status != "ClaimRequested" && entry.status != "SweepBroadcast" {
+        if !matches!(
+            entry.status.as_str(),
+            "ClaimRequested" | "ClaimConfirmed" | "SweepBroadcast"
+        ) {
             entry.status = if scan.underfunded {
                 "Underfunded".to_string()
             } else {
