@@ -2,15 +2,6 @@ use super::*;
 
 const TEST_DIR_BASE: &str = "tmp/hodl_invoice/";
 
-/// Generate a random preimage and its corresponding payment hash.
-fn random_preimage_and_hash() -> (String, String) {
-    let mut preimage = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut preimage);
-    let preimage_hex = hex_str(&preimage);
-    let payment_hash = hex_str(&Sha256::hash(&preimage).to_byte_array());
-    (preimage_hex, payment_hash)
-}
-
 async fn setup_two_nodes_with_channel(
     test_dir_suffix: &str,
     port_offset: u16,
@@ -80,15 +71,6 @@ async fn setup_two_nodes_with_asset_channel(
         test_dir_node2,
         asset_id,
     )
-}
-
-async fn setup_single_node(test_dir_suffix: &str, port_offset: u16) -> (SocketAddr, String) {
-    let test_dir_base = format!("{TEST_DIR_BASE}{test_dir_suffix}/");
-    let test_dir_node1 = format!("{test_dir_base}node1");
-    let node1_port = NODE1_PEER_PORT + port_offset;
-    let (node1_addr, _) = start_node(&test_dir_node1, node1_port, false).await;
-    fund_and_create_utxos(node1_addr, None).await;
-    (node1_addr, test_dir_node1)
 }
 
 async fn invoice_settle_expect_error(
@@ -874,16 +856,32 @@ async fn settling_while_settling_fails() {
         "claimable entry should be marked settling",
     );
 
-    // Prefer the settling-in-progress error; accept already-settled if the race completes first.
-    invoice_settle_expect_error(
-        node2_addr,
-        payment_hash_hex.clone(),
-        preimage_hex,
-        StatusCode::FORBIDDEN,
-        "Invoice settlement is in progress",
-        "InvoiceSettlingInProgress",
-    )
-    .await;
+    // Prefer the settling-in-progress error; accept already-settled (200 OK) if the race completes first.
+    let payload = InvoiceSettleRequest {
+        payment_hash: payment_hash_hex.clone(),
+        payment_preimage: preimage_hex,
+    };
+    let res = reqwest::Client::new()
+        .post(format!("http://{node2_addr}/settlehodlinvoice"))
+        .json(&payload)
+        .send()
+        .await
+        .unwrap();
+    if res.status() == StatusCode::FORBIDDEN {
+        check_response_is_nok(
+            res,
+            StatusCode::FORBIDDEN,
+            "Invoice settlement is in progress",
+            "InvoiceSettlingInProgress",
+        )
+        .await;
+    } else if res.status() == StatusCode::OK {
+        let _ = _check_response_is_ok(res).await;
+    } else {
+        let status = res.status();
+        let body = res.text().await.unwrap_or_default();
+        panic!("expected 403 settling-in-progress or 200 already settled, got {status}: {body}");
+    }
 
     let payee_payment =
         wait_for_ln_payment(node2_addr, &decoded.payment_hash, HTLCStatus::Succeeded).await;
@@ -1128,7 +1126,9 @@ async fn reject_duplicate_hodl_payment_hash() {
     initialize();
 
     // Arrange: start a node and fund it.
-    let (node1_addr, _test_dir_node1) = setup_single_node("duplicate_hash", 40).await;
+    let test_dir_base = format!("{TEST_DIR_BASE}duplicate_hash/");
+    let (node1_addr, _test_dir_node1) =
+        setup_single_node(&test_dir_base, "node1", NODE1_PEER_PORT + 40).await;
 
     // Arrange: create the first HODL invoice.
     let (_preimage_hex, payment_hash_hex) = random_preimage_and_hash();
@@ -1177,7 +1177,9 @@ async fn cancel_unpaid_invoice_fails() {
     initialize();
 
     // Arrange: start a node and fund it.
-    let (node1_addr, _test_dir_node1) = setup_single_node("cancel_unpaid", 41).await;
+    let test_dir_base = format!("{TEST_DIR_BASE}cancel_unpaid/");
+    let (node1_addr, _test_dir_node1) =
+        setup_single_node(&test_dir_base, "node1", NODE1_PEER_PORT + 41).await;
 
     // Arrange: create a HODL invoice but never pay it.
     let (_preimage_hex, payment_hash_hex) = random_preimage_and_hash();

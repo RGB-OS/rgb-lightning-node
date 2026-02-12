@@ -46,12 +46,13 @@ use crate::routes::{
     change_password, check_indexer_url, check_proxy_endpoint, close_channel, connect_peer,
     create_utxos, decode_ln_invoice, decode_rgb_invoice, disconnect_peer, estimate_fee,
     fail_transfers, get_asset_media, get_channel_id, get_payment, get_payment_preimage, get_swap,
-    hodl_invoice, init, invoice_status, issue_asset_cfa, issue_asset_nia, issue_asset_uda, keysend,
-    list_assets, list_channels, list_payments, list_peers, list_swaps, list_transactions,
-    list_transfers, list_unspents, ln_invoice, lock, maker_execute, maker_init, network_info,
-    node_info, open_channel, post_asset_media, refresh_transfers, restore, revoke_token,
-    rgb_invoice, rgb_invoice_htlc, send_asset, send_btc, send_onion_message, send_payment,
-    settle_hodl_invoice, shutdown, sign_message, sync, taker, unlock,
+    hodl_invoice, htlc_claim, htlc_scan, htlc_tracker, init, invoice_status, issue_asset_cfa,
+    issue_asset_nia, issue_asset_uda, keysend, list_assets, list_channels, list_payments,
+    list_peers, list_swaps, list_transactions, list_transfers, list_unspents, ln_invoice, lock,
+    maker_execute, maker_init, network_info, node_info, open_channel, post_asset_media,
+    refresh_transfers, restore, revoke_token, rgb_invoice, rgb_invoice_htlc, send_asset, send_btc,
+    send_onion_message, send_payment, settle_hodl_invoice, shutdown, sign_message, sync, taker,
+    unlock,
 };
 use crate::utils::{start_daemon, AppState, LOGS_DIR};
 
@@ -154,6 +155,9 @@ pub(crate) async fn app(args: UserArgs) -> Result<(Router, Arc<AppState>), AppEr
         .route("/revoketoken", post(revoke_token))
         .route("/rgbinvoice", post(rgb_invoice))
         .route("/rgbinvoicehtlc", post(rgb_invoice_htlc))
+        .route("/htlcclaim", post(htlc_claim))
+        .route("/htlcscan", post(htlc_scan))
+        .route("/htlctracker", post(htlc_tracker))
         .route("/sendasset", post(send_asset))
         .route("/sendbtc", post(send_btc))
         .route("/sendonionmessage", post(send_onion_message))
