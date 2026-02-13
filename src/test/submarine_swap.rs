@@ -1,7 +1,5 @@
 use super::*;
 use crate::ldk::{HtlcTrackerStorage, HtlcUtxoKind};
-use amplify::hex::ToHex;
-use bitcoin::secp256k1::XOnlyPublicKey;
 use bitcoin::{Address, Network, ScriptBuf};
 use lightning::rgb_utils::STATIC_BLINDING;
 use lightning::util::ser::Readable;
@@ -160,12 +158,9 @@ async fn htlc_claim_sets_dest_scripts_for_vanilla_and_colored() {
         .btc_destination_script_hex
         .as_ref()
         .expect("btc destination script missing");
-    let lp_xonly =
-        XOnlyPublicKey::from_str(&entry.lp_pubkey_xonly).expect("lp_pubkey_xonly invalid");
-    let secp = Secp256k1::verification_only();
-    let expected_btc_script =
-        Address::p2tr(&secp, lp_xonly, None, Network::Regtest).script_pubkey();
-    assert_eq!(btc_dest_hex, &expected_btc_script.as_bytes().to_hex());
+    let btc_script_bytes = hex_str_to_vec(btc_dest_hex).expect("btc destination script hex");
+    let btc_script = ScriptBuf::from_bytes(btc_script_bytes);
+    Address::from_script(&btc_script, Network::Regtest).expect("btc destination script invalid");
 
     let rgb_dest_hex = entry
         .rgb_destination_script_hex
@@ -174,6 +169,10 @@ async fn htlc_claim_sets_dest_scripts_for_vanilla_and_colored() {
     let rgb_script_bytes = hex_str_to_vec(rgb_dest_hex).expect("rgb destination script hex");
     let rgb_script = ScriptBuf::from_bytes(rgb_script_bytes);
     Address::from_script(&rgb_script, Network::Regtest).expect("rgb destination script invalid");
+    assert_ne!(
+        btc_dest_hex, rgb_dest_hex,
+        "BTC and RGB destination scripts should be distinct"
+    );
 }
 
 #[serial_test::serial]

@@ -48,7 +48,7 @@ use lightning_invoice::{Bolt11Invoice, PaymentSecret};
 use regex::Regex;
 use rgb_lib::{
     generate_keys,
-    utils::recipient_id_from_script_buf,
+    utils::{recipient_id_from_script_buf, script_buf_from_recipient_id},
     wallet::{
         rust_only::{
             check_indexer_url as rgb_lib_check_indexer_url,
@@ -1565,10 +1565,6 @@ async fn scan_htlc_funding(
             entry.min_confirmations
         )));
     }
-
-    unlocked_state
-        .rgb_refresh(false)
-        .map_err(|e| APIError::InvalidHtlcParams(format!("RGB refresh failed: {e}")))?;
 
     let asset_id = entry.asset_id.clone();
     if asset_id.is_some() {
@@ -4244,25 +4240,35 @@ pub(crate) async fn rgb_invoice_htlc(
             .map_err(|_| APIError::InvalidHtlcParams("Invalid user compressed pubkey".into()))?;
         let (user_xonly, _) = user_pk.x_only_public_key();
         let network: Network = state.static_state.network.into();
-        let secp = Secp256k1::new();
         let lp_child_xpub = derive_lp_htlc_xpub(&unlocked_state.lp_htlc_xpub, &payment_hash)?;
         let lp_pubkey = lp_child_xpub.public_key;
         let (lp_xonly, _) = lp_pubkey.x_only_public_key();
         let lp_xonly_hex = lp_xonly.serialize().to_hex();
         let lp_key_path = htlc_full_path_from_payment_hash(network, &payment_hash).to_string();
-        let btc_destination_script_hex = Address::p2tr(&secp, lp_xonly, None, network)
-            .script_pubkey()
-            .as_bytes()
-            .to_hex();
-        let rgb_address = unlocked_state
+
+        let btc_address = unlocked_state
             .rgb_get_address()
             .map_err(|e| APIError::InvalidHtlcParams(e.to_string()))?;
-        let rgb_destination_script_hex = Address::from_str(&rgb_address)
-            .map_err(|_| APIError::InvalidHtlcParams("Invalid RGB wallet address".into()))?
+        let btc_destination_script_hex = Address::from_str(&btc_address)
+            .map_err(|_| APIError::InvalidHtlcParams("Invalid BTC wallet address".into()))?
             .assume_checked()
             .script_pubkey()
             .as_bytes()
             .to_hex();
+
+        let claim_witness_receive = unlocked_state.rgb_witness_receive(
+            payload.asset_id.clone(),
+            assignment.clone(),
+            payload.duration_seconds,
+            vec![unlocked_state.proxy_endpoint.clone()],
+            payload.min_confirmations,
+        )?;
+        let rgb_destination_script = script_buf_from_recipient_id(claim_witness_receive.recipient_id)
+            .map_err(|e| APIError::InvalidRecipientData(e.to_string()))?
+            .ok_or_else(|| {
+                APIError::InvalidRecipientData("RGB recipient_id is not witness".into())
+            })?;
+        let rgb_destination_script_hex = rgb_destination_script.as_bytes().to_hex();
 
         let current_height = unlocked_state
             .bitcoind_client

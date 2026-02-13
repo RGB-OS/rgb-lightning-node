@@ -739,10 +739,11 @@ pub(crate) struct RgbOutputSpender {
 }
 
 impl RgbOutputSpender {
-    fn sweep_htlc_tracker(&self, secp_ctx: &Secp256k1<All>) {
+    fn sweep_htlc_tracker(&self, secp_ctx: &Secp256k1<All>) -> bool {
         let network: Network = self.static_state.network.into();
         let mut tracker = disk::read_htlc_tracker(&self.static_state.ldk_data_dir);
         let mut updated = false;
+        let mut accepted_any = false;
         let mut broadcast_txs: Vec<Transaction> = Vec::new();
 
         for (payment_hash, entry) in tracker.entries.iter_mut() {
@@ -750,6 +751,7 @@ impl RgbOutputSpender {
                 if self.try_accept_sweep(entry) {
                     entry.status = "ClaimConfirmed".to_string();
                     updated = true;
+                    accepted_any = true;
                 }
                 continue;
             }
@@ -1248,6 +1250,7 @@ impl RgbOutputSpender {
                 if self.try_accept_sweep(entry) {
                     entry.status = "ClaimConfirmed".to_string();
                     updated = true;
+                    accepted_any = true;
                 }
             }
         }
@@ -1260,12 +1263,14 @@ impl RgbOutputSpender {
         if updated {
             disk::write_htlc_tracker(&self.static_state.ldk_data_dir, &tracker);
         }
+
+        accepted_any
     }
 
     #[cfg(test)]
     pub(crate) fn sweep_htlc_tracker_for_tests(&self) {
         let secp_ctx = Secp256k1::new();
-        self.sweep_htlc_tracker(&secp_ctx);
+        let _ = self.sweep_htlc_tracker(&secp_ctx);
     }
 
     fn try_accept_sweep(&self, entry: &HtlcTrackerEntry) -> bool {
@@ -2739,7 +2744,7 @@ impl OutputSpender for RgbOutputSpender {
         locktime: Option<LockTime>,
         secp_ctx: &Secp256k1<All>,
     ) -> Result<bitcoin::Transaction, ()> {
-        self.sweep_htlc_tracker(secp_ctx);
+        let _ = self.sweep_htlc_tracker(secp_ctx);
 
         let mut hasher = DefaultHasher::new();
         descriptors.hash(&mut hasher);
@@ -3495,7 +3500,21 @@ pub(crate) async fn start_ldk(
             if let Err(e) = spv_client.poll_best_tip().await {
                 tracing::error!("Error while polling best tip: {:?}", e);
             } else {
-                htlc_output_spender.sweep_htlc_tracker(&secp_ctx);
+                let accepted_any = htlc_output_spender.sweep_htlc_tracker(&secp_ctx);
+                if accepted_any {
+                    let rgb_wallet_wrapper = htlc_output_spender.rgb_wallet_wrapper.clone();
+                    match tokio::task::spawn_blocking(move || rgb_wallet_wrapper.refresh(false))
+                        .await
+                    {
+                        Ok(Ok(_)) => {}
+                        Ok(Err(e)) => {
+                            tracing::warn!("HTLC sweep refresh failed: {e}");
+                        }
+                        Err(e) => {
+                            tracing::warn!("HTLC sweep refresh task failed: {e}");
+                        }
+                    }
+                }
             }
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
