@@ -1101,12 +1101,12 @@ impl RgbOutputSpender {
                             contract_id,
                             AssetColoringInfo {
                                 output_map: HashMap::from_iter([(rgb_vout, total_rgb)]),
-                                static_blinding: None,
+                                static_blinding: Some(STATIC_BLINDING),
                             },
                         );
                         let coloring_info = ColoringInfo {
                             asset_info_map,
-                            static_blinding: None,
+                            static_blinding: Some(STATIC_BLINDING),
                             nonce: None,
                         };
                         let input_outpoints: Vec<OutPoint> = colored_descs
